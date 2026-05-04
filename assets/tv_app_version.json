@@ -1,7 +1,7 @@
 {
     "version": "1.7.0",
     "version_num": 10700,
-    "version_desc": "- 修复直播间内通过推荐与历史再次进房时的页面套娃、返回黑屏与房间未正确切换问题\n- 同步播放器交互修复与 UTF-8 中文文案清理\n- 更新 TV 正式发布流程与构建链路",
+    "version_desc": "- 修复直播间内通过推荐与历史再次进房时的页面套娃、返回黑屏与房间未正确切换问题\n- 修复画面尺寸中文乱码与全屏快捷入口右侧列表一闪即消失问题\n- 设置页增加黑屏排查提示，遇到有声无画面时优先开启兼容模式\n- TV 更新检查已切换到当前公开仓库的版本说明与下载页",
     "prerelease": false,
-    "download_url": "https://github.com/June6699/dart_simple_live/releases"
+    "download_url": "https://github.com/June6699/dart_simple_live/releases/tag/tv_v1.7.0"
 }

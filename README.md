@@ -107,6 +107,7 @@
 - 新增 `B站 / 抖音 / 斗鱼` 贡献榜或亲密榜展示能力。
 - 发布链路已拆成 Android / Windows / Linux 三条独立工作流，macOS 改为手动入口，并补齐 Android TV 正式 release。
 - Windows / Android / Android TV 本地 Flutter 已升级到 `3.41.9`，并保留 Linux WSL 独立 Flutter 构建路径。
+- TV 更新检查已切换到当前公开仓库的版本说明与下载页，不再继续指向上游仓库。
 - TV 设置页补充黑屏排查提示，方便在没有设备的情况下给用户明确的兼容性操作建议。
 
 ## 下一步计划
