@@ -9,14 +9,10 @@ import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
-import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/live_room/player/player_controls.dart';
 import 'package:simple_live_app/modules/live_room/widgets/live_contribution_rank_panel.dart';
-import 'package:simple_live_app/services/follow_service.dart';
-import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
-import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:simple_live_app/widgets/keep_alive_wrapper.dart';
 import 'package:simple_live_app/widgets/net_image.dart';
 import 'package:simple_live_app/widgets/settings/settings_action.dart';
@@ -39,79 +35,172 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     return viewPadding > padding ? viewPadding : padding;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final page = Obx(
-      () {
-        if (controller.loadError.value) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text("直播间加载失败"),
-            ),
-            body: Padding(
-              padding: AppStyle.edgeInsetsA12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  LottieBuilder.asset(
-                    'assets/lotties/error.json',
-                    height: 140,
-                    repeat: false,
-                  ),
-                  const Text(
-                    "直播间加载失败",
-                    textAlign: TextAlign.center,
-                  ),
-                  AppStyle.vGap4,
-                  Text(
-                    controller.error?.toString() ?? "未知错误",
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  AppStyle.vGap4,
-                  Text(
-                    "${controller.rxSite.value.id} - ${controller.rxRoomId.value}",
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextButton.icon(
-                        onPressed: controller.copyErrorDetail,
-                        icon: const Icon(Remix.file_copy_line),
-                        label: const Text("复制信息"),
-                      ),
-                      TextButton.icon(
-                        onPressed: controller.refreshRoom,
-                        icon: const Icon(Remix.refresh_line),
-                        label: const Text("刷新"),
-                      ),
-                    ],
-                  )
-                ],
+  Widget _buildRoomTitleText() {
+    return Obx(
+      () => Text(
+        controller.detail.value?.title ?? "直播间",
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  Widget _buildMobileAppBarTitle(BuildContext context) {
+    return SizedBox(
+      height: kToolbarHeight,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kToolbarHeight),
+              child: Center(
+                child: _buildRoomTitleText(),
               ),
             ),
-          );
-        }
-        if (controller.fullScreenState.value) {
-          return PopScope(
-            canPop: false,
-            onPopInvokedWithResult: (e, r) {
-              controller.exitPlayerWindowMode();
-            },
-            child: Scaffold(
-              body: buildMediaPlayer(),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.arrow_back),
             ),
-          );
-        } else {
-          return buildPageUI();
-        }
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              onPressed: showMore,
+              icon: const Icon(Icons.more_horiz),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandscapeAppBarTitle(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sidePanelWidth = constraints.maxWidth > _desktopSidePanelWidth
+            ? _desktopSidePanelWidth
+            : 0.0;
+        final playerWidth = constraints.maxWidth - sidePanelWidth;
+        return SizedBox(
+          height: kToolbarHeight,
+          child: Row(
+            children: [
+              SizedBox(
+                width: playerWidth,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          left: kToolbarHeight,
+                          right: 16,
+                        ),
+                        child: Center(
+                          child: _buildRoomTitleText(),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: IconButton(
+                        onPressed: () => Navigator.maybePop(context),
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: sidePanelWidth,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    onPressed: showMore,
+                    icon: const Icon(Icons.more_horiz),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
       },
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = Obx(() {
+      if (controller.loadError.value) {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text("直播间加载失败"),
+          ),
+          body: Padding(
+            padding: AppStyle.edgeInsetsA12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                LottieBuilder.asset(
+                  'assets/lotties/error.json',
+                  height: 140,
+                  repeat: false,
+                ),
+                const Text(
+                  "直播间加载失败",
+                  textAlign: TextAlign.center,
+                ),
+                AppStyle.vGap4,
+                Text(
+                  controller.error?.toString() ?? "未知错误",
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                AppStyle.vGap4,
+                Text(
+                  "${controller.rxSite.value.id} - ${controller.rxRoomId.value}",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton.icon(
+                      onPressed: controller.copyErrorDetail,
+                      icon: const Icon(Remix.file_copy_line),
+                      label: const Text("复制信息"),
+                    ),
+                    TextButton.icon(
+                      onPressed: controller.refreshRoom,
+                      icon: const Icon(Remix.refresh_line),
+                      label: const Text("刷新"),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      if (controller.fullScreenState.value) {
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            controller.exitPlayerWindowMode();
+          },
+          child: Scaffold(
+            body: buildMediaPlayer(),
+          ),
+        );
+      }
+      return buildPageUI();
+    });
     if (!Platform.isAndroid) {
       return page;
     }
@@ -125,43 +214,15 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   Widget buildPageUI() {
     return OrientationBuilder(
       builder: (context, orientation) {
-        final hasDesktopActionPanel = orientation == Orientation.landscape &&
-            (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+        final hasLandscapeActionPanel =
+            orientation == Orientation.landscape;
         return Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
             titleSpacing: 0,
-            title: Obx(
-              () => SizedBox(
-                height: kToolbarHeight,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.only(
-                        left: 48,
-                        right: 48 +
-                            (hasDesktopActionPanel
-                                ? _desktopSidePanelWidth
-                                : 0),
-                      ),
-                      child: Text(
-                        controller.detail.value?.title ?? "直播间",
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: IconButton(
-                        onPressed: showMore,
-                        icon: const Icon(Icons.more_horiz),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            title: hasLandscapeActionPanel
+                ? _buildLandscapeAppBarTitle(context)
+                : _buildMobileAppBarTitle(context),
           ),
           body: orientation == Orientation.portrait
               ? buildPhoneUI(context)
@@ -593,7 +654,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
         message: message.message,
         userStyle: userStyle,
         messageStyle: messageStyle,
-        onUserTap: () => controller.showUserActions(message.userName),
+        onUserTap: () => controller.showUserActions(
+          message.userName,
+          messageContent: message.message,
+        ),
         onUserLongPress: () => controller.copyUserName(message.userName),
       );
     }
@@ -672,7 +736,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     onExpire: () {
                       controller.removeSuperChats();
                     },
-                    onUserTap: () => controller.showUserActions(item.userName),
+                    onUserTap: () => controller.showUserActions(
+                      item.userName,
+                      messageContent: item.message,
+                    ),
                     onUserLongPress: () =>
                         controller.copyUserName(item.userName),
                   );
@@ -815,43 +882,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildFollowList() {
-    return Obx(
-      () => Stack(
-        children: [
-          RefreshIndicator(
-            onRefresh: FollowService.instance.loadData,
-            child: ListView.builder(
-              itemCount: FollowService.instance.liveList.length,
-              itemBuilder: (_, i) {
-                var item = FollowService.instance.liveList[i];
-                return Obx(
-                  () => FollowUserItem(
-                    item: item,
-                    playing: controller.rxSite.value.id == item.siteId &&
-                        controller.rxRoomId.value == item.roomId,
-                    onTap: () {
-                      controller.resetRoom(
-                        Sites.allSites[item.siteId]!,
-                        item.roomId,
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-          if (Platform.isLinux || Platform.isWindows || Platform.isMacOS)
-            Positioned(
-              right: 12,
-              bottom: 12,
-              child: Obx(
-                () => DesktopRefreshButton(
-                  refreshing: FollowService.instance.updating.value,
-                  onPressed: FollowService.instance.loadData,
-                ),
-              ),
-            ),
-        ],
+    return KeepAliveWrapper(
+      child: controller.buildFollowUserSelection(
+        onClose: () {},
       ),
     );
   }
@@ -1032,14 +1065,12 @@ class _InteractiveChatText extends StatelessWidget {
     required this.onUserLongPress,
   });
 
-  static const _userSuffix = '：';
-
   TextSpan _buildTextSpan() {
     return TextSpan(
       style: messageStyle,
       children: [
         TextSpan(
-          text: '$userName$_userSuffix',
+          text: '$userName：',
           style: userStyle,
         ),
         if ((remark ?? "").trim().isNotEmpty)
@@ -1055,69 +1086,19 @@ class _InteractiveChatText extends StatelessWidget {
     );
   }
 
-  bool _isUserNameHit({
-    required BuildContext context,
-    required BoxConstraints constraints,
-    required Offset offset,
-  }) {
-    final userTextLength = '$userName$_userSuffix'.length;
-    if (userTextLength == 0) {
-      return false;
-    }
-
-    final maxWidth = constraints.hasBoundedWidth
-        ? constraints.maxWidth
-        : MediaQuery.sizeOf(context).width;
-    final painter = TextPainter(
-      text: _buildTextSpan(),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      textWidthBasis: TextWidthBasis.parent,
-    )..layout(maxWidth: maxWidth);
-
-    final boxes = painter.getBoxesForSelection(
-      TextSelection(
-        baseOffset: 0,
-        extentOffset: userTextLength,
-      ),
-    );
-
-    return boxes.any((box) => box.toRect().contains(offset));
-  }
-
   @override
   Widget build(BuildContext context) {
     final textSpan = _buildTextSpan();
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        bool userHitTest(Offset offset) {
-          return _isUserNameHit(
-            context: context,
-            constraints: constraints,
-            offset: offset,
-          );
-        }
-
-        return GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTapUp: (details) {
-            if (userHitTest(details.localPosition)) {
-              onUserTap();
-            }
-          },
-          onLongPressStart: (details) {
-            if (userHitTest(details.localPosition)) {
-              onUserLongPress();
-            }
-          },
-          child: Text.rich(
-            textSpan,
-            softWrap: true,
-            textWidthBasis: TextWidthBasis.parent,
-          ),
-        );
-      },
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: onUserTap,
+      onLongPress: onUserLongPress,
+      child: Text.rich(
+        textSpan,
+        softWrap: true,
+        textWidthBasis: TextWidthBasis.parent,
+      ),
     );
   }
 }

@@ -13,14 +13,42 @@ import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
+typedef RoomSelectionCallback = void Function(Site site, String roomId);
+
 /// APP页面跳转封装
 /// * 需要参数的页面都应使用此类
 /// * 如不需要参数，可以使用Get.toNamed
 class AppNavigator {
+  /// 跳转至观看记录
+  static Future<dynamic> toHistory({
+    RoomSelectionCallback? onRoomSelected,
+  }) {
+    return Get.toNamed(
+          RoutePath.kHistory,
+          arguments: onRoomSelected == null
+              ? null
+              : {
+                  "onRoomSelected": onRoomSelected,
+                },
+        ) ??
+        Future.value();
+  }
+
   /// 跳转至分类详情
   static void toCategoryDetail(
-      {required Site site, required LiveSubCategory category}) {
-    Get.toNamed(RoutePath.kCategoryDetail, arguments: [site, category]);
+      {required Site site,
+      required LiveSubCategory category,
+      RoomSelectionCallback? onRoomSelected,
+      String? excludedRoomId}) {
+    Get.toNamed(
+      RoutePath.kCategoryDetail,
+      arguments: {
+        "site": site,
+        "category": category,
+        if (onRoomSelected != null) "onRoomSelected": onRoomSelected,
+        if (excludedRoomId != null) "excludedRoomId": excludedRoomId,
+      },
+    );
   }
 
   /// 跳转至直播间

@@ -45,6 +45,7 @@ import 'package:simple_live_app/modules/settings/other/other_settings_page.dart'
 import 'package:simple_live_app/modules/settings/play_settings_page.dart';
 
 import '../modules/indexed/indexed_page.dart';
+import 'app_navigation.dart';
 import 'route_path.dart';
 
 class AppPages {
@@ -64,7 +65,14 @@ class AppPages {
       name: RoutePath.kHistory,
       page: () => const HistoryPage(),
       bindings: [
-        BindingsBuilder.put(() => HistoryController()),
+        BindingsBuilder.put(() {
+          final args = Get.arguments;
+          return HistoryController(
+            onRoomSelected: args is Map<String, dynamic>
+                ? args["onRoomSelected"] as RoomSelectionCallback?
+                : null,
+          );
+        }),
       ],
     ),
     // 关注用户
@@ -87,12 +95,22 @@ class AppPages {
     GetPage(
       name: RoutePath.kCategoryDetail,
       page: () => const CategoryDetailPage(),
-      binding: BindingsBuilder.put(
-        () => CategoryDetailController(
-          site: Get.arguments[0],
-          subCategory: Get.arguments[1],
-        ),
-      ),
+      binding: BindingsBuilder.put(() {
+        final args = Get.arguments;
+        if (args is Map<String, dynamic>) {
+          return CategoryDetailController(
+            site: args["site"],
+            subCategory: args["category"],
+            onRoomSelected:
+                args["onRoomSelected"] as RoomSelectionCallback?,
+            excludedRoomId: args["excludedRoomId"] as String?,
+          );
+        }
+        return CategoryDetailController(
+          site: args[0],
+          subCategory: args[1],
+        );
+      }),
     ),
     //直播间
     GetPage(

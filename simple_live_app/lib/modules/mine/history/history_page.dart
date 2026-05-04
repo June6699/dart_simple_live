@@ -87,6 +87,14 @@ class HistoryPage extends GetView<HistoryController> {
                 ],
               ),
               onTap: () {
+                final onRoomSelected = controller.onRoomSelected;
+                if (onRoomSelected != null) {
+                  Get.back();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    onRoomSelected(site, item.roomId);
+                  });
+                  return;
+                }
                 AppNavigator.toLiveRoomDetail(site: site, roomId: item.roomId);
               },
               onLongPress: () async {

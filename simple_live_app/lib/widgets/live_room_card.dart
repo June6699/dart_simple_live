@@ -11,14 +11,17 @@ import 'package:simple_live_core/simple_live_core.dart';
 class LiveRoomCard extends StatelessWidget {
   final Site site;
   final LiveRoomItem item;
-  const LiveRoomCard(this.site, this.item, {Key? key}) : super(key: key);
+  final VoidCallback? onTap;
+  const LiveRoomCard(this.site, this.item, {this.onTap, Key? key})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return ShadowCard(
-      onTap: () {
-        AppNavigator.toLiveRoomDetail(site: site, roomId: item.roomId);
-      },
+      onTap: onTap ??
+          () {
+            AppNavigator.toLiveRoomDetail(site: site, roomId: item.roomId);
+          },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

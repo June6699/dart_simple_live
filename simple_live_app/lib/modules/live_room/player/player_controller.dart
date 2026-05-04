@@ -137,7 +137,7 @@ mixin PlayerStateMixin on PlayerMixin {
   /// 自动隐藏控制器计时器
   Timer? hideControlsTimer;
 
-  /// 鑷姩闅愯棌榧犳爣璁℃椂鍣?
+  /// 自动隐藏鼠标光标计时器
   Timer? hideMouseCursorTimer;
 
   /// 自动隐藏提示计时器
@@ -151,7 +151,8 @@ mixin PlayerStateMixin on PlayerMixin {
   var showQualites = false.obs;
   var showLines = false.obs;
 
-  bool get useBottomSheetPlayerMenus => Platform.isAndroid || Platform.isIOS;
+  bool get useBottomSheetPlayerMenus =>
+      (Platform.isAndroid || Platform.isIOS) && !fullScreenState.value;
 
   /// 隐藏控制器
   void hideControls() {
@@ -177,7 +178,7 @@ mixin PlayerStateMixin on PlayerMixin {
     resetHideMouseCursorTimer();
   }
 
-  /// 鏄剧ず榧犳爣
+  /// 显示鼠标光标
   void showMouseCursor() {
     if (!Platform.isWindows) {
       return;
@@ -186,7 +187,7 @@ mixin PlayerStateMixin on PlayerMixin {
     hideMouseCursorState.value = false;
   }
 
-  /// 闅愯棌榧犳爣
+  /// 隐藏鼠标光标
   void hideMouseCursor() {
     if (!Platform.isWindows) {
       return;
@@ -208,7 +209,7 @@ mixin PlayerStateMixin on PlayerMixin {
     );
   }
 
-  /// 寮€濮嬮殣钘忔爣绛惧叆鐨勯紶鏍?
+  /// 开始隐藏鼠标光标计时
   void resetHideMouseCursorTimer() {
     if (!Platform.isWindows) {
       return;
@@ -747,7 +748,7 @@ mixin PlayerGestureControlMixin
     }
   }
 
-  //桌面端操控
+  // 桌面端鼠标操控
   void onEnter(PointerEnterEvent event) {
     showMouseCursor();
     resetHideMouseCursorTimer();
@@ -758,23 +759,26 @@ mixin PlayerGestureControlMixin
 
   void onExit(PointerExitEvent event) {
     hideMouseCursorTimer?.cancel();
-    if (showControlsState.value) {
-      hideControls();
+    hideControlsTimer?.cancel();
+    if (!showControlsState.value) {
+      return;
     }
-    showMouseCursor();
+    hideControlsTimer = Timer(
+      const Duration(milliseconds: 180),
+      () {
+        if (showControlsState.value) {
+          hideControls();
+        }
+      },
+    );
   }
 
   void onHover(PointerHoverEvent event, BuildContext context) {
     showMouseCursor();
     resetHideMouseCursorTimer();
     resetHideControlsTimer();
-    final screenHeight = MediaQuery.of(context).size.height;
-    final targetPosition = screenHeight * 0.25; // 计算屏幕顶部25%的位置
-    if (event.position.dy <= targetPosition ||
-        event.position.dy >= targetPosition * 3) {
-      if (!showControlsState.value) {
-        showControls();
-      }
+    if (!showControlsState.value) {
+      showControls();
     }
   }
 

@@ -15,8 +15,10 @@
 ## 1. 适用范围
 
 - 主应用：`simple_live_app`
+- TV 应用：`simple_live_tv_app`
 - 当前正式发布产物：
   - Android 单个 `apk`
+  - Android TV 拆分 `apk`
   - Windows `zip`
   - Linux `zip`
   - Linux `deb`
@@ -39,7 +41,16 @@
 - JDK 17：`C:\softwares\jdk-17`
 - Windows 本机部署目录：`C:\softwares\SimpleLive`
 - Android 本机输出目录：`C:\softwares\SimpleLiveAndroid`
+- Android TV 本机输出目录：`C:\softwares\SimpleLiveAndroidTV`
 - Release 汇总目录：`C:\softwares\dart_simple_live\release`
+
+固定约定：
+
+- `Windows / Android / Android TV` 只使用这一套本地 Flutter：`C:\softwares\flutter`
+- `Linux` 只使用 WSL 里的独立 Flutter，不和 Windows 共用同一套 SDK
+- 不要在 Windows 本地长期保留第二套 `flutter_clean / flutter_tmp / flutter_backup_for_build` 之类的并行 SDK
+- 如果 `C:\softwares\flutter` 损坏，修复方式应是“用干净 SDK 替换回 `C:\softwares\flutter`”，而不是让项目长期改用第二个本地路径
+- 不要在 `WSL flutter pub get` 和 `Windows flutter pub get` 之间对同一个工程目录来回混跑，否则 `.dart_tool/package_config.json` 很容易混入错误路径
 
 如果这些路径改了，先同步修改对应脚本或命令。
 
@@ -76,13 +87,14 @@
 当前公开仓库不应包含这些文件：
 
 - `build_android_apk.bat`
+- `build_tv_apk.bat`
 - `deploy_windows.bat`
 - `UPDATE.md`
 - `RELEASE_BUILD_FLOW.md`
 
 ## 4. 当前 GitHub Actions 工作流
 
-当前主应用发布相关工作流拆成 4 个文件：
+当前主应用与 TV 应用发布相关工作流拆成 6 个文件：
 
 - [publish_app_release.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release.yml)
   - Android 自动发布
@@ -100,6 +112,16 @@
   - macOS 手动构建入口
   - 触发方式：`workflow_dispatch`
   - 默认不参与正式发布
+- [publish_tv_app_dev.yaml](/C:/softwares/dart_simple_live/.github/workflows/publish_tv_app_dev.yaml)
+  - Android TV 开发预发构建
+  - 触发方式：推送 `dev_tv_v*` tag 或手动 `workflow_dispatch`
+  - 产物上传到 GitHub Actions Artifacts
+- [publish_tv_app_release.yaml](/C:/softwares/dart_simple_live/.github/workflows/publish_tv_app_release.yaml)
+  - Android TV 正式 release
+  - 触发方式：推送 `tv_v*` tag
+  - 依赖 GitHub Secrets：`TV_KEYSTORE_BASE64`、`TV_STORE_PASSWORD`、`TV_KEY_PASSWORD`、`TV_KEY_ALIAS`
+  - 使用 `flutter build apk --release --split-per-abi`
+  - 会上传 `armeabi-v7a / arm64-v8a / x86_64` 三个 APK 到 Artifacts 和 GitHub Release
 
 ## 5. 发布前原则
 
@@ -109,8 +131,9 @@
    - push 代码
    - 打 tag
    - 以 GitHub Actions 产物为正式 release
-3. 三个平台要独立看待：
+3. 四个平台要独立看待：
    - Android 只看 Android
+   - Android TV 只看 Android TV
    - Windows 只看 Windows
    - Linux 只看 Linux
 4. 不要再让 macOS 成败阻塞正式发版。
@@ -143,9 +166,50 @@ git tag -f v1.12.0
 git push origin v1.12.0 --force
 ```
 
+TV 版版本信息在：
+
+- [simple_live_tv_app/pubspec.yaml](/C:/softwares/dart_simple_live/simple_live_tv_app/pubspec.yaml)
+- [assets/tv_app_version.json](/C:/softwares/dart_simple_live/assets/tv_app_version.json)
+
+例如：
+
+```yaml
+version: 1.6.5+10605
+```
+
+```json
+{
+  "version": "1.6.5",
+  "version_num": 10605
+}
+```
+
+TV 发版时要保证：
+
+1. `simple_live_tv_app/pubspec.yaml` 的 `version` 已更新
+2. `assets/tv_app_version.json` 的 `version`、`version_num`、`version_desc` 与本次发布一致
+3. 正式 release 的 Git tag 使用 `tv_v` 前缀
+4. 如果只是跑开发预发构建，使用 `dev_tv_v*` tag
+
+例如正式 release：
+
+```powershell
+cd C:\softwares\dart_simple_live
+git tag tv_v1.7.0
+git push origin tv_v1.7.0
+```
+
+例如开发预发构建：
+
+```powershell
+cd C:\softwares\dart_simple_live
+git tag dev_tv_v1.6.5
+git push origin dev_tv_v1.6.5
+```
+
 ## 7. 本地预验证
 
-### 6.1 Android
+### 7.1 Android
 
 仓库脚本：
 
@@ -161,10 +225,40 @@ cd C:\softwares\dart_simple_live
 说明：
 
 - 脚本会检查 `Flutter / Android SDK / JDK / keystore`
+- Flutter 固定走 `C:\softwares\flutter`
+- 原始构建产物先落在 `simple_live_app\build\...`
 - 成功后会把 APK 复制到：
   - `C:\softwares\SimpleLiveAndroid\SimpleLive-release.apk`
 
-### 6.2 Windows
+### 7.2 Android TV
+
+仓库脚本：
+
+- [build_tv_apk.bat](/C:/softwares/dart_simple_live/build_tv_apk.bat)
+
+推荐命令：
+
+```powershell
+cd C:\softwares\dart_simple_live
+.\build_tv_apk.bat --no-pause C:\softwares\SimpleLiveAndroidTV
+```
+
+说明：
+
+- 脚本会检查 `Flutter / Android SDK / JDK / keystore`
+- Flutter 固定走 `C:\softwares\flutter`
+- 会执行 `flutter pub get`
+- 会执行 `flutter build apk --release --split-per-abi`
+- 原始构建产物先落在 `simple_live_tv_app\build\...`
+- 成功后会把 APK 复制到：
+  - `C:\softwares\SimpleLiveAndroidTV\SimpleLive-TV-armeabi-v7a-release.apk`
+  - `C:\softwares\SimpleLiveAndroidTV\SimpleLive-TV-arm64-v8a-release.apk`
+  - `C:\softwares\SimpleLiveAndroidTV\SimpleLive-TV-x86_64-release.apk`
+- TV 正式签名依赖：
+  - `simple_live_tv_app/android/key.properties`
+  - `simple_live_tv_app/android/release-keystore.jks`
+
+### 7.3 Windows
 
 仓库脚本：
 
@@ -180,12 +274,14 @@ cd C:\softwares\dart_simple_live
 说明：
 
 - 会自动关闭正在运行的 `simple_live_app.exe`
+- Flutter 固定走 `C:\softwares\flutter`
 - 会执行 `flutter pub get`
 - 会执行 `flutter build windows --release`
+- 原始构建产物先落在 `simple_live_app\build\windows\...`
 - 会把结果镜像部署到：
   - `C:\softwares\SimpleLive`
 
-### 6.3 Linux
+### 7.4 Linux
 
 正式 release 优先依赖 GitHub Actions。
 
@@ -507,32 +603,35 @@ git push fork refs/tags/v1.12.0 --force
 release\
   v1.12.0\
     android\
+    tv\
     linux\
     windows\
     source\
-    _tmp\
 ```
 
 其中：
 
 - `android`：最终正式 APK
+- `tv`：最终正式 Android TV APK
 - `linux`：最终 `deb` 和 `zip`
 - `windows`：最终 `zip`
 - `source`：源码压缩包
-- `_tmp`：临时下载、解压、artifact 中转目录
 
 原则：
 
 1. `release` 里只放最终成品
 2. 不要把 `debug` 输出混进去
 3. 不要把旧版本覆盖到新版本目录
-4. 不要把临时解压文件长期留在 `android / linux / windows / source` 目录里
+4. 不要把临时解压文件长期留在 `android / tv / linux / windows / source` 目录里
 
 ## 13. 当前正式资产命名
 
 当前目标保留这些文件：
 
 - `simple_live_app-<app_version>-android.apk`
+- `simple_live_tv_app-<tv_app_version>-armeabi-v7a-release.apk`
+- `simple_live_tv_app-<tv_app_version>-arm64-v8a-release.apk`
+- `simple_live_tv_app-<tv_app_version>-x86_64-release.apk`
 - `simple_live_app-<app_version>-windows.zip`
 - `simple_live_app-<app_version>-linux.zip`
 - `simple_live_app-<app_version>-linux.deb`
@@ -541,6 +640,9 @@ release\
 例如 `1.12.0+11200`：
 
 - `simple_live_app-1.12.0+11200-android.apk`
+- `simple_live_tv_app-1.7.0+10700-armeabi-v7a-release.apk`
+- `simple_live_tv_app-1.7.0+10700-arm64-v8a-release.apk`
+- `simple_live_tv_app-1.7.0+10700-x86_64-release.apk`
 - `simple_live_app-1.12.0+11200-windows.zip`
 - `simple_live_app-1.12.0+11200-linux.zip`
 - `simple_live_app-1.12.0+11200-linux.deb`
@@ -556,7 +658,23 @@ Copy-Item -Force `
   C:\softwares\dart_simple_live\release\v1.12.0\android\simple_live_app-1.12.0+11200-android.apk
 ```
 
-### 11.2 归档 Windows
+### 14.2 归档 Android TV
+
+```powershell
+Copy-Item -Force `
+  C:\softwares\dart_simple_live\simple_live_tv_app\build\app\outputs\flutter-apk\app-armeabi-v7a-release.apk `
+  C:\softwares\dart_simple_live\release\v1.12.0\tv\simple_live_tv_app-1.7.0+10700-armeabi-v7a-release.apk
+
+Copy-Item -Force `
+  C:\softwares\dart_simple_live\simple_live_tv_app\build\app\outputs\flutter-apk\app-arm64-v8a-release.apk `
+  C:\softwares\dart_simple_live\release\v1.12.0\tv\simple_live_tv_app-1.7.0+10700-arm64-v8a-release.apk
+
+Copy-Item -Force `
+  C:\softwares\dart_simple_live\simple_live_tv_app\build\app\outputs\flutter-apk\app-x86_64-release.apk `
+  C:\softwares\dart_simple_live\release\v1.12.0\tv\simple_live_tv_app-1.7.0+10700-x86_64-release.apk
+```
+
+### 14.3 归档 Windows
 
 ```powershell
 Compress-Archive `
@@ -565,7 +683,7 @@ Compress-Archive `
   -Force
 ```
 
-### 11.3 归档 Linux
+### 14.4 归档 Linux
 
 如果是 GitHub Release 下载来的，直接放到：
 
@@ -578,7 +696,7 @@ cp -f /root/build/dart_simple_live/simple_live_app/build/dist/1.12.0+11200/simpl
 cp -f /root/build/dart_simple_live/simple_live_app/build/dist/1.12.0+11200/simple_live_app-1.12.0+11200-linux.zip /mnt/c/softwares/dart_simple_live/release/v1.12.0/linux/
 ```
 
-### 11.4 归档 source zip
+### 14.5 归档 source zip
 
 如果当前 HEAD 就是你要归档的版本：
 
@@ -594,7 +712,34 @@ cd C:\softwares\dart_simple_live
 git archive --format=zip --output=C:\softwares\dart_simple_live\release\v1.12.0\source\dart_simple_live-v1.12.0-source.zip v1.12.0
 ```
 
-## 15. CI 成功后的常规收尾
+## 15. build 完成后的本地保留规则
+
+构建过程中会同时出现三类目录：
+
+1. 工程内 `build\...`
+2. 本机临时预编译目录：
+   - `C:\softwares\SimpleLive`
+   - `C:\softwares\SimpleLiveAndroid`
+   - `C:\softwares\SimpleLiveAndroidTV`
+3. 最终归档目录：
+   - `C:\softwares\dart_simple_live\release\...`
+
+约定：
+
+- `build\...` 只作为编译中间产物，不长期保留
+- `C:\softwares\SimpleLive*` 只作为临时预编译/临时拷贝目录，不长期保留
+- 真正长期保留的最终成品，只放在 `C:\softwares\dart_simple_live\release`
+
+在 `push` 之前，增加一个固定收尾动作：
+
+1. 确认需要保留的 APK / ZIP / DEB / source zip 都已经归档到 `release`
+2. 清理工程内 `build` 目录
+3. 清理 `C:\softwares\SimpleLive`
+4. 清理 `C:\softwares\SimpleLiveAndroid`
+5. 清理 `C:\softwares\SimpleLiveAndroidTV`
+6. 最终只保留 `C:\softwares\dart_simple_live\release` 中的正式内容，避免重复占用空间
+
+## 16. CI 成功后的常规收尾
 
 如果 3 条自动工作流都成功，则通常只需要：
 
@@ -602,6 +747,7 @@ git archive --format=zip --output=C:\softwares\dart_simple_live\release\v1.12.0\
 2. 下载 Windows 和 Linux 正式产物到本地 `release\vX.Y.Z`
 3. 本地生成或核对 source zip
 4. 用 Windows `zip` 刷新 `C:\softwares\SimpleLive`
+5. 在 push 之前，按上一节规则清理 `build` 和 `C:\softwares\SimpleLive*`
 
 示例：
 
@@ -613,11 +759,11 @@ gh release download v1.12.0 --repo June6699/dart_simple_live -p "simple_live_app
 gh release download v1.12.0 --repo June6699/dart_simple_live -p "simple_live_app-1.12.0+11200-linux.deb" -D C:\softwares\dart_simple_live\release\v1.12.0\linux
 ```
 
-## 16. 兜底流程
+## 17. 兜底流程
 
 如果某条工作流已经成功构建，但 release 上传阶段异常，可以补救。
 
-### 13.1 下载某条工作流 artifact
+### 17.1 下载某条工作流 artifact
 
 ```powershell
 $env:PATH='C:\softwares\GitHubCli;C:\softwares\Git\cmd;'+$env:PATH
@@ -626,7 +772,7 @@ gh run download <run_id> --repo June6699/dart_simple_live -n windows -D C:\softw
 gh run download <run_id> --repo June6699/dart_simple_live -n linux -D C:\softwares\dart_simple_live\release\v1.12.0\_tmp\linux_artifact
 ```
 
-### 13.2 手动补传 Release
+### 17.2 手动补传 Release
 
 ```powershell
 $env:HTTP_PROXY='http://127.0.0.1:10808'
@@ -641,7 +787,7 @@ gh release upload v1.12.0 --repo June6699/dart_simple_live --clobber `
   C:\softwares\dart_simple_live\release\v1.12.0\source\dart_simple_live-v1.12.0-source.zip
 ```
 
-## 17. 上传失败时的代理处理
+## 18. 上传失败时的代理处理
 
 如果：
 
@@ -713,7 +859,7 @@ gh release view v1.12.0 --repo June6699/dart_simple_live --json assets,url
 8. 如果这次要同步公开 `fork`，确认公开仓库不含 `bat / UPDATE.md / RELEASE_BUILD_FLOW.md`
 9. 如果这次要同步公开 `fork`，确认公开 source zip 是基于公开裁剪提交生成的
 
-## 20. 建议的最短执行顺序
+## 21. 建议的最短执行顺序
 
 赶时间时，按这套顺序走：
 
@@ -726,8 +872,9 @@ gh release view v1.12.0 --repo June6699/dart_simple_live --json assets,url
 5. 分别看 Android、Windows、Linux 三条工作流
 6. 检查正式 Release 资产是否齐全
 7. 本地归档到 `release\vX.Y.Z`
-8. 刷新 `C:\softwares\SimpleLive`
-9. 如果这次需要公开，再额外执行一次公开裁剪并同步到 `fork`
+8. 清理工程内 `build` 和 `C:\softwares\SimpleLive*`，最终只保留 `release`
+9. 如有需要，再临时从 `release` 刷新 `C:\softwares\SimpleLive`
+10. 如果这次需要公开，再额外执行一次公开裁剪并同步到 `fork`
 
 如果 Linux 这次不能复用旧 release，又不想等线上 release，也可以插入一个本地 Linux 构建步骤：
 

@@ -6,6 +6,7 @@ import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/routes/app_navigation.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/services/signalr_service.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -69,7 +70,7 @@ class MinePage extends StatelessWidget {
                     color: Colors.grey,
                   ),
                   onTap: () {
-                    Get.toNamed(RoutePath.kHistory);
+                    AppNavigator.toHistory();
                   },
                 ),
               ],

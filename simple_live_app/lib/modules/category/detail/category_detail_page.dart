@@ -30,7 +30,19 @@ class CategoryDetailPage extends GetView<CategoryDetailController> {
           crossAxisCount: c,
           itemBuilder: (_, i) {
             var item = controller.list[i];
-            return LiveRoomCard(controller.site, item);
+            return LiveRoomCard(
+              controller.site,
+              item,
+              onTap: controller.onRoomSelected == null
+                  ? null
+                  : () {
+                      final onRoomSelected = controller.onRoomSelected!;
+                      Get.back();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        onRoomSelected(controller.site, item.roomId);
+                      });
+                    },
+            );
           },
         ),
       ),

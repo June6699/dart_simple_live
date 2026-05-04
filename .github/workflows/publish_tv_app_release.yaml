@@ -3,7 +3,7 @@ name: app-build-action
 on:
   push:
     tags:
-      - "tv_*"
+      - "tv_v*"
 jobs:
   build-tv:
     runs-on: macos-latest

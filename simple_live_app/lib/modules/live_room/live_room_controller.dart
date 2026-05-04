@@ -27,6 +27,8 @@ import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/filter_button.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
+import 'package:simple_live_app/widgets/net_image.dart';
+import 'package:simple_live_app/widgets/status/app_empty_widget.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -44,7 +46,7 @@ class LiveRoomController extends PlayerController
     rxSite = pSite.obs;
     rxRoomId = pRoomId.obs;
     liveDanmaku = site.liveSite.getDanmaku();
-    // 鎶栭煶搴旇榛樿鏄珫灞忕殑
+    // 抖音直播间默认按竖屏处理。
     if (site.id == "douyin") {
       isVertical.value = true;
     }
@@ -74,54 +76,54 @@ class LiveRoomController extends PlayerController
         Constant.kDouyin,
       }.contains(site.id);
 
-  /// 婊氬姩鎺у埗
+  /// 聊天列表滚动控制器
   final ScrollController scrollController = ScrollController();
 
-  /// 鑱婂ぉ淇℃伅
+  /// 聊天消息列表
   RxList<LiveMessage> messages = RxList<LiveMessage>();
 
-  /// 娓呮櫚搴︽暟鎹?
+  /// 清晰度列表
   RxList<LivePlayQuality> qualites = RxList<LivePlayQuality>();
 
-  /// 褰撳墠娓呮櫚搴?
+  /// 当前清晰度索引
   var currentQuality = -1;
   var currentQualityInfo = "".obs;
 
-  /// 绾胯矾鏁版嵁
+  /// 播放线路列表
   RxList<String> playUrls = RxList<String>();
 
   Map<String, String>? playHeaders;
 
-  /// 褰撳墠绾胯矾
+  /// 当前播放线路索引
   var currentLineIndex = -1;
   var currentLineInfo = "".obs;
 
-  /// 閫€鍑哄€掕鏃?
+  /// 自动退出倒计时，单位秒
   var countdown = 60.obs;
 
   Timer? autoExitTimer;
 
-  /// 璁剧疆鐨勮嚜鍔ㄥ叧闂椂闂达紙鍒嗛挓锛?
+  /// 设置的自动关闭时长，单位分钟
   var autoExitMinutes = 60.obs;
 
-  ///鏄惁寤惰繜鑷姩鍏抽棴
+  /// 是否已请求延迟自动关闭
   var delayAutoExit = false.obs;
 
-  /// 鏄惁鍚敤鑷姩鍏抽棴
+  /// 是否启用自动关闭
   var autoExitEnable = false.obs;
 
-  /// 鏄惁绂佺敤鑷姩婊氬姩鑱婂ぉ鏍?
-  /// - 褰撶敤鎴峰悜涓婃粴鍔ㄨ亰澶╂爮鏃讹紝涓嶅啀鑷姩婊氬姩
+  /// 是否禁用聊天自动滚动
+  /// - 用户手动上拉聊天列表后，不再自动滚到底部
   var disableAutoScroll = false.obs;
 
-  /// 鏄惁澶勪簬鍚庡彴
+  /// 应用是否处于后台
   var isBackground = false;
 
-  /// 鐩存挱闂村姞杞藉け璐?
+  /// 直播间加载是否失败
   var loadError = false.obs;
   Error? error;
 
-  // 寮€鎾椂闀跨姸鎬佸彉閲?
+  // 开播时长展示状态
   var liveDuration = "00:00:00".obs;
   Timer? _liveDurationTimer;
   StreamSubscription<Duration>? _positionSubscription;
@@ -197,7 +199,7 @@ class LiveRoomController extends PlayerController
         pattern = keyword;
       }
       if (pattern != null && msg.message.contains(pattern)) {
-        Log.d("閸忔娊鏁拠宥忕窗$keyword\n瀹告彃鐫嗛拕鑺ョХ閹垰鍞寸€圭櫢绱?{msg.message}");
+        Log.d("命中屏蔽词 $keyword\n已过滤消息: ${msg.message}");
         return true;
       }
     }
@@ -401,12 +403,18 @@ class LiveRoomController extends PlayerController
     );
   }
 
-  void showUserActions(String userName) {
+  void showUserActions(
+    String userName, {
+    String? messageContent,
+  }) {
     final value = _normalizeUserName(userName);
     if (value.isEmpty) {
       SmartDialog.showToast("用户名不能为空");
       return;
     }
+    final normalizedMessage = messageContent == null
+        ? null
+        : _normalizeMessageText(messageContent).trim();
     final isShielded = AppSettingsController.instance.isUserShielded(
       value,
       siteId: site.id,
@@ -462,6 +470,20 @@ class LiveRoomController extends PlayerController
               copyUserName(value);
             },
           ),
+          if (normalizedMessage != null && normalizedMessage.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: const Text("复制弹幕内容"),
+              subtitle: Text(
+                normalizedMessage,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () {
+                Get.back();
+                copyMessageContent(normalizedMessage);
+              },
+            ),
           ListTile(
             leading: const Icon(Icons.restore_outlined),
             title: const Text("批量恢复临时禁言"),
@@ -486,6 +508,16 @@ class LiveRoomController extends PlayerController
     }
     Utils.copyToClipboard(value);
     SmartDialog.showToast("已复制用户名：$value");
+  }
+
+  void copyMessageContent(String message) {
+    final value = _normalizeMessageText(message).trim();
+    if (value.isEmpty) {
+      SmartDialog.showToast("弹幕内容为空");
+      return;
+    }
+    Utils.copyToClipboard(value);
+    SmartDialog.showToast("已复制弹幕内容");
   }
 
   void updateDanmakuViewportHeight(double value) {
@@ -689,7 +721,7 @@ class LiveRoomController extends PlayerController
     }
   }
 
-  /// 鍒濆鍖栬嚜鍔ㄥ叧闂€掕鏃?
+  /// 初始化自动关闭计时器
   void initAutoExit() {
     if (AppSettingsController.instance.autoExitEnable.value) {
       autoExitEnable.value = true;
@@ -717,8 +749,13 @@ class LiveRoomController extends PlayerController
           exit(0);
         });
         autoExitTimer?.cancel();
-        var delay = await Utils.showAlertDialog("瀹氭椂鍏抽棴宸插埌鏃?鏄惁寤惰繜鍏抽棴?",
-            title: "寤惰繜鍏抽棴", confirm: "寤惰繜", cancel: "鍏抽棴", selectable: true);
+        var delay = await Utils.showAlertDialog(
+          "定时关闭时间已到，是否延迟关闭？",
+          title: "延迟关闭",
+          confirm: "延迟",
+          cancel: "关闭",
+          selectable: true,
+        );
         if (delay) {
           timer.cancel();
           delayAutoExit.value = true;
@@ -732,7 +769,7 @@ class LiveRoomController extends PlayerController
       }
     });
   }
-  // 寮圭獥閫昏緫
+  // 页面刷新与重载逻辑
 
   void refreshRoom() {
     //messages.clear();
@@ -763,10 +800,10 @@ class LiveRoomController extends PlayerController
     super.onClose();
   }
 
-  /// 鑱婂ぉ鏍忓缁堟粴鍔ㄥ埌搴曢儴
+  /// 聊天列表滚动到底部
   void chatScrollToBottom() {
     if (scrollController.hasClients) {
-      // 濡傛灉鎵嬪姩涓婃媺杩囷紝灏变笉鑷姩婊氬姩鍒板簳閮?
+      // 用户手动上拉过时，不再自动滚到底部。
       if (disableAutoScroll.value) {
         return;
       }
@@ -774,14 +811,14 @@ class LiveRoomController extends PlayerController
     }
   }
 
-  /// 鍒濆鍖栧脊骞曟帴鏀朵簨浠?
+  /// 初始化弹幕连接回调
   void initDanmau() {
     liveDanmaku.onMessage = onWSMessage;
     liveDanmaku.onClose = onWSClose;
     liveDanmaku.onReady = onWSReady;
   }
 
-  /// 鎺ユ敹鍒癢ebSocket淇℃伅
+  /// 接收 WebSocket 消息
   void onWSMessage(LiveMessage msg) {
     msg = _sanitizeLiveMessage(msg);
     if (msg.type == LiveMessageType.chat) {
@@ -789,7 +826,7 @@ class LiveRoomController extends PlayerController
         messages.removeAt(0);
       }
       if (_isUserShielded(msg.userName) || isTempMutedUser(msg.userName)) {
-        Log.d("瀹告彃鐫嗛拕鐣屾暏閹村嚖绱?{msg.userName}");
+        Log.d("已过滤被屏蔽用户: ${msg.userName}");
         return;
       }
 
@@ -827,7 +864,7 @@ class LiveRoomController extends PlayerController
     }
   }
 
-  /// 娣诲姞涓€鏉＄郴缁熸秷鎭?
+  /// 添加一条系统消息
   void addSysMsg(String msg) {
     messages.add(
       LiveMessage(
@@ -839,17 +876,17 @@ class LiveRoomController extends PlayerController
     );
   }
 
-  /// 鎺ユ敹鍒癢ebSocket鍏抽棴淇℃伅
+  /// 接收 WebSocket 关闭消息
   void onWSClose(String msg) {
     addSysMsg(msg);
   }
 
-  /// WebSocket鍑嗗灏辩华
+  /// WebSocket 已连接完成
   void onWSReady() {
     addSysMsg("弹幕服务器连接成功");
   }
 
-  /// 鍔犺浇鐩存挱闂翠俊鎭?
+  /// 加载直播间信息
   void loadData() async {
     try {
       SmartDialog.showLoading(msg: "");
@@ -869,14 +906,13 @@ class LiveRoomController extends PlayerController
       );
 
       if (site.id == Constant.kDouyin) {
-        // 1.6.0涔嬪墠鏀惰棌鐨刉ebRid
-        // 1.6.0鏀惰棌鐨凴oomID
-        // 1.6.0涔嬪悗鏀瑰洖WebRid
+        // 1.6.0 之前收藏的是 WebRid，中间一版收藏的是 RoomID，
+        // 这里统一修正回当前实际 roomId。
         if (detail.value!.roomId != roomId) {
           var oldId = roomId;
           rxRoomId.value = detail.value!.roomId;
           if (followed.value) {
-            // 鏇存柊关注列表
+            // 同步修正已关注房间的主键
             DBService.instance.deleteFollow("${site.id}_$oldId");
             DBService.instance.addFollow(
               FollowUser(
@@ -907,7 +943,7 @@ class LiveRoomController extends PlayerController
       }
 
       addHistory();
-      // 纭鎴块棿鍏虫敞鐘舵€?
+      // 刷新关注状态
       followed.value = DBService.instance.getFollowExist("${site.id}_$roomId");
       online.value = detail.value!.online;
       liveStatus.value = detail.value!.status || detail.value!.isRecord;
@@ -921,7 +957,7 @@ class LiveRoomController extends PlayerController
       addSysMsg("正在连接弹幕服务器");
       initDanmau();
       liveDanmaku.start(detail.value?.danmakuData);
-      startLiveDurationTimer(); // 鍚姩寮€鎾椂闀垮畾鏃跺櫒
+      startLiveDurationTimer();
     } catch (e) {
       Log.logPrint(e);
       //SmartDialog.showToast(e.toString());
@@ -932,7 +968,7 @@ class LiveRoomController extends PlayerController
     }
   }
 
-  /// 鍒濆鍖栨挱鏀惧櫒
+  /// 读取可用清晰度并选择默认值
   void getPlayQualites() async {
     qualites.clear();
     currentQuality = -1;
@@ -948,13 +984,13 @@ class LiveRoomController extends PlayerController
       qualites.value = playQualites;
       var qualityLevel = await getQualityLevel();
       if (qualityLevel == 2) {
-        //鏈€楂?
+        // 最高
         currentQuality = 0;
       } else if (qualityLevel == 0) {
-        //鏈€浣?
+        // 最低
         currentQuality = playQualites.length - 1;
       } else {
-        //涓棿鍊?
+        // 中间档
         int middle = (playQualites.length / 2).floor();
         currentQuality = middle;
       }
@@ -992,7 +1028,7 @@ class LiveRoomController extends PlayerController
         .getPlayUrls(detail: detail.value!, quality: qualites[currentQuality]);
     if (playUrl.urls.isEmpty) {
       if (!silent) {
-        SmartDialog.showToast("鏃犳硶璇诲彇鎾斁鍦板潃");
+        SmartDialog.showToast("无法读取播放地址");
       }
       return false;
     }
@@ -1014,14 +1050,14 @@ class LiveRoomController extends PlayerController
     if (!await _reloadPlayUrls(resetLine: true)) {
       return;
     }
-    //閲嶇疆閿欒娆℃暟
+    // 重置播放器错误重试次数
     mediaErrorRetryCount = 0;
     await initPlaylist();
   }
 
   Future<void> changePlayLine(int index) async {
     currentLineIndex = index;
-    //閲嶇疆閿欒娆℃暟
+    // 切线时同样重置重试次数
     mediaErrorRetryCount = 0;
     await setPlayer();
   }
@@ -1042,7 +1078,7 @@ class LiveRoomController extends PlayerController
         finalUrl = finalUrl.replaceAll("http://", "https://");
       }
 
-      // 鍒濆鍖栨挱鏀惧櫒骞惰缃?ao 鍙傛暟
+      // 重新初始化播放器，并带上当前线路的请求头。
       await initializePlayer();
 
       await player.open(
@@ -1051,7 +1087,7 @@ class LiveRoomController extends PlayerController
           httpHeaders: playHeaders,
         ),
       );
-      Log.d("鎾斁閾炬帴\r\n锛?finalUrl");
+      Log.d("播放链接\n$finalUrl");
     } finally {
       _playerReopening = false;
     }
@@ -1073,17 +1109,16 @@ class LiveRoomController extends PlayerController
     if (mediaErrorRetryCount < 2) {
       Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
-        //寤惰繜涓€绉掑啀鍒锋柊
+        // 第二次重试前稍等一秒
         await Future.delayed(const Duration(seconds: 1));
       }
       mediaErrorRetryCount += 1;
-      //鍒锋柊涓€娆?
       await setPlayer(refreshUrls: site.id == Constant.kHuya);
       return;
     }
 
-    Log.d("鎾斁缁撴潫");
-    // 閬嶅巻绾胯矾锛屽鏋滃叏閮ㄩ摼鎺ラ兘鏂紑灏辨槸鐩存挱缁撴潫浜?
+    Log.d("播放结束");
+    // 依次尝试剩余线路，全部失败后再判定为已下播。
     if (playUrls.length - 1 == currentLineIndex) {
       if (site.id == Constant.kHuya) {
         currentLineIndex = 0;
@@ -1106,11 +1141,10 @@ class LiveRoomController extends PlayerController
     if (mediaErrorRetryCount < 2) {
       Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
-        //寤惰繜涓€绉掑啀鍒锋柊
+        // 第二次重试前稍等一秒
         await Future.delayed(const Duration(seconds: 1));
       }
       mediaErrorRetryCount += 1;
-      //鍒锋柊涓€娆?
       await setPlayer(refreshUrls: site.id == Constant.kHuya);
       return;
     }
@@ -1122,8 +1156,8 @@ class LiveRoomController extends PlayerController
         await setPlayer(refreshUrls: true);
         return;
       }
-      errorMsg.value = "鎾斁澶辫触";
-      SmartDialog.showToast("鎾斁澶辫触:$error");
+      errorMsg.value = "播放失败";
+      SmartDialog.showToast("播放失败: $error");
     } else {
       //currentLineIndex += 1;
       //setPlayer();
@@ -1131,7 +1165,7 @@ class LiveRoomController extends PlayerController
     }
   }
 
-  /// 璇诲彇SC
+  /// 读取头条 / SC
   void getSuperChatMessage({bool silent = false}) async {
     if (detail.value == null) {
       return;
@@ -1154,11 +1188,11 @@ class LiveRoomController extends PlayerController
       if (silent) {
         return;
       }
-      addSysMsg("SC璇诲彇澶辫触");
+      addSysMsg("SC 读取失败");
     }
   }
 
-  /// 绉婚櫎鎺夊凡鍒版湡鐨凷C
+  /// 移除已经过期的头条 / SC
   void removeSuperChats() async {
     var now = DateTime.now().millisecondsSinceEpoch;
     superChats.value = superChats
@@ -1209,12 +1243,15 @@ class LiveRoomController extends PlayerController
     EventBus.instance.emit(Constant.kUpdateFollow, id);
   }
 
-  /// 鍙栨秷鍏虫敞鐢ㄦ埛
+  /// 取消关注当前主播
   void removeFollowUser() async {
     if (detail.value == null) {
       return;
     }
-    if (!await Utils.showAlertDialog("纭畾瑕佸彇娑堝叧娉ㄨ鐢ㄦ埛鍚楋紵", title: "鍙栨秷鍏虫敞")) {
+    if (!await Utils.showAlertDialog(
+      "确定要取消关注这位主播吗？",
+      title: "取消关注",
+    )) {
       return;
     }
 
@@ -1236,29 +1273,29 @@ class LiveRoomController extends PlayerController
       return;
     }
     Utils.copyToClipboard(detail.value!.url);
-    SmartDialog.showToast("宸插鍒剁洿鎾棿閾炬帴");
+    SmartDialog.showToast("已复制直播间链接");
   }
 
-  /// 澶嶅埗鏂扮敓鎴愮殑鐩存挱娴?
+  /// 复制当前生成的播放直链
   void copyPlayUrl() async {
-    // 鏈紑鎾笉澶嶅埗
+    // 未开播时不复制
     if (!liveStatus.value) {
       return;
     }
     var playUrl = await site.liveSite
         .getPlayUrls(detail: detail.value!, quality: qualites[currentQuality]);
     if (playUrl.urls.isEmpty) {
-      SmartDialog.showToast("鏃犳硶璇诲彇鎾斁鍦板潃");
+      SmartDialog.showToast("无法读取播放地址");
       return;
     }
     Utils.copyToClipboard(playUrl.urls.first);
     SmartDialog.showToast("已复制播放直链");
   }
 
-  /// 搴曢儴鎵撳紑鎾斁鍣ㄨ缃?
+  /// 底部弹出弹幕设置
   void showDanmuSettingsSheet() {
     Utils.showBottomSheet(
-      title: "寮瑰箷璁剧疆",
+      title: "弹幕设置",
       child: ListView(
         padding: AppStyle.edgeInsetsA12,
         children: [
@@ -1454,8 +1491,327 @@ class LiveRoomController extends PlayerController
     return "${site.name} / ${category.name}";
   }
 
+  bool get useFullscreenSidePanelMenus =>
+      fullScreenState.value && (Platform.isAndroid || Platform.isIOS);
+
+  Widget buildHistorySelection({
+    required VoidCallback onClose,
+  }) {
+    final histories = <History>[].obs;
+    final loading = true.obs;
+
+    Future<void> loadHistory() async {
+      loading.value = true;
+      try {
+        histories.value = DBService.instance.getHistores();
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    unawaited(loadHistory());
+
+    return Obx(() {
+      if (loading.value && histories.isEmpty) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (histories.isEmpty) {
+        return AppEmptyWidget(
+          message: "暂无观看历史",
+          onRefresh: loadHistory,
+        );
+      }
+      return RefreshIndicator(
+        onRefresh: loadHistory,
+        child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: AppStyle.edgeInsetsA12,
+          itemCount: histories.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (_, i) {
+            final item = histories[i];
+            final historySite = Sites.allSites[item.siteId];
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: historySite == null
+                    ? null
+                    : () {
+                        onClose();
+                        resetRoom(historySite, item.roomId);
+                      },
+                onLongPress: () async {
+                  final confirmed = await Utils.showAlertDialog(
+                    "确定要删除此记录吗?",
+                    title: "删除记录",
+                  );
+                  if (!confirmed) {
+                    return;
+                  }
+                  await DBService.instance.historyBox.delete(item.id);
+                  await loadHistory();
+                },
+                child: Ink(
+                  padding: AppStyle.edgeInsetsA8,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Get.theme.cardColor,
+                    border: Border.all(
+                      color: Colors.grey.withAlpha(25),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      NetImage(
+                        item.face,
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                      ),
+                      AppStyle.hGap12,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.userName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            AppStyle.vGap4,
+                            Text(
+                              "${historySite?.name ?? item.siteId} · ${Utils.parseTime(item.updateTime)}",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (historySite != null) ...[
+                        AppStyle.hGap8,
+                        Image.asset(
+                          historySite.logo,
+                          width: 20,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    });
+  }
+
+  Widget buildCategoryRecommendationSelection({
+    required VoidCallback onClose,
+  }) {
+    final category = _buildRecommendationCategory();
+    if (category == null) {
+      return const AppEmptyWidget(
+        message: "当前直播间暂无同类推荐内容",
+      );
+    }
+
+    final rooms = <LiveRoomItem>[].obs;
+    final loading = true.obs;
+    final page = 1.obs;
+    final hasMore = true.obs;
+
+    Future<void> loadRecommendations({bool refresh = false}) async {
+      if (loading.value && !refresh) {
+        return;
+      }
+      loading.value = true;
+      try {
+        final targetPage = refresh ? 1 : page.value;
+        final result = await site.liveSite.getCategoryRooms(
+          category,
+          page: targetPage,
+        );
+        final fetched = result.items
+            .where((item) => item.roomId != roomId)
+            .toList();
+        if (refresh) {
+          rooms.assignAll(fetched);
+          page.value = 2;
+        } else {
+          final existingRoomIds = rooms.map((item) => item.roomId).toSet();
+          rooms.addAll(
+            fetched.where((item) => !existingRoomIds.contains(item.roomId)),
+          );
+          page.value = targetPage + 1;
+        }
+        hasMore.value = fetched.isNotEmpty;
+      } catch (e) {
+        if (rooms.isEmpty) {
+          SmartDialog.showToast("加载同类推荐失败: ${exceptionToString(e)}");
+        } else {
+          handleError(e);
+        }
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    unawaited(loadRecommendations(refresh: true));
+
+    return Obx(() {
+      if (loading.value && rooms.isEmpty) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (rooms.isEmpty) {
+        return AppEmptyWidget(
+          message: "当前分区暂无可用推荐",
+          onRefresh: () => loadRecommendations(refresh: true),
+        );
+      }
+      return RefreshIndicator(
+        onRefresh: () => loadRecommendations(refresh: true),
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: AppStyle.edgeInsetsA12,
+          itemCount: rooms.length + 2,
+          itemBuilder: (_, i) {
+            if (i == 0) {
+              return Padding(
+                padding: AppStyle.edgeInsetsB12,
+                child: Text(
+                  currentRecommendationSubtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              );
+            }
+            if (i == rooms.length + 1) {
+              if (loading.value) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (!hasMore.value) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: Text(
+                      "已经到底了",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                );
+              }
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: TextButton.icon(
+                  onPressed: () => loadRecommendations(),
+                  icon: const Icon(Icons.expand_more),
+                  label: const Text("加载更多"),
+                ),
+              );
+            }
+
+            final item = rooms[i - 1];
+            return Padding(
+              padding: EdgeInsets.only(bottom: i == rooms.length ? 0 : 8),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    onClose();
+                    resetRoom(site, item.roomId);
+                  },
+                  child: Ink(
+                    padding: AppStyle.edgeInsetsA8,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Get.theme.cardColor,
+                      border: Border.all(
+                        color: Colors.grey.withAlpha(25),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: NetImage(
+                            item.cover,
+                            width: 108,
+                            height: 60,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        AppStyle.hGap12,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              AppStyle.vGap4,
+                              Text(
+                                item.userName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              AppStyle.vGap4,
+                              Text(
+                                "热度 ${Utils.onlineToString(item.online)}",
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    });
+  }
+
   void openHistoryPage() {
-    Get.toNamed(RoutePath.kHistory);
+    if (useFullscreenSidePanelMenus) {
+      Utils.showRightDialog(
+        title: "观看历史",
+        width: 420,
+        useSystem: true,
+        child: buildHistorySelection(
+          onClose: Utils.hideRightDialog,
+        ),
+      );
+      return;
+    }
+    AppNavigator.toHistory(
+      onRoomSelected: (selectedSite, selectedRoomId) {
+        resetRoom(selectedSite, selectedRoomId);
+      },
+    );
   }
 
   void openCategoryRecommendation() {
@@ -1464,9 +1820,24 @@ class LiveRoomController extends PlayerController
       SmartDialog.showToast("当前直播间还没有可用的分区标签");
       return;
     }
+    if (useFullscreenSidePanelMenus) {
+      Utils.showRightDialog(
+        title: "同类推荐",
+        width: 420,
+        useSystem: true,
+        child: buildCategoryRecommendationSelection(
+          onClose: Utils.hideRightDialog,
+        ),
+      );
+      return;
+    }
     AppNavigator.toCategoryDetail(
       site: site,
       category: category,
+      excludedRoomId: roomId,
+      onRoomSelected: (selectedSite, selectedRoomId) {
+        resetRoom(selectedSite, selectedRoomId);
+      },
     );
   }
 
@@ -1611,17 +1982,17 @@ class LiveRoomController extends PlayerController
   void showAutoExitSheet() {
     if (AppSettingsController.instance.autoExitEnable.value &&
         !delayAutoExit.value) {
-      SmartDialog.showToast("宸茶缃簡鍏ㄥ眬瀹氭椂鍏抽棴");
+      SmartDialog.showToast("已设置全局定时关闭");
       return;
     }
     Utils.showBottomSheet(
-      title: "瀹氭椂鍏抽棴",
+      title: "定时关闭",
       child: ListView(
         children: [
           Obx(
             () => SwitchListTile(
               title: Text(
-                "鍚敤瀹氭椂鍏抽棴",
+                "启用定时关闭",
                 style: Get.textTheme.titleMedium,
               ),
               value: autoExitEnable.value,
@@ -1637,7 +2008,7 @@ class LiveRoomController extends PlayerController
             () => ListTile(
               enabled: autoExitEnable.value,
               title: Text(
-                "鑷姩鍏抽棴鏃堕棿锛?{autoExitMinutes.value ~/ 60}灏忔椂${autoExitMinutes.value % 60}鍒嗛挓",
+                "自动关闭时间：${autoExitMinutes.value ~/ 60}小时${autoExitMinutes.value % 60}分钟",
                 style: Get.textTheme.titleMedium,
               ),
               trailing: const Icon(Icons.chevron_right),
@@ -1700,7 +2071,7 @@ class LiveRoomController extends PlayerController
       await launchUrlString(naviteUrl, mode: LaunchMode.externalApplication);
     } catch (e) {
       Log.logPrint(e);
-      SmartDialog.showToast("鏃犳硶鎵撳紑APP锛屽皢浣跨敤娴忚鍣ㄦ墦寮€");
+      SmartDialog.showToast("无法打开 APP，将使用浏览器打开");
       await launchUrlString(webUrl, mode: LaunchMode.externalApplication);
     }
   }
@@ -1715,7 +2086,7 @@ class LiveRoomController extends PlayerController
     tempMutedUsers.clear();
     danmakuViewportHeight.value = 0;
 
-    // 娓呴櫎鍏ㄩ儴娑堟伅
+    // 清理当前房间的会话状态
     await liveDanmaku.stop();
     messages.clear();
     _clearSuperChatState();
@@ -1725,20 +2096,20 @@ class LiveRoomController extends PlayerController
     danmakuController?.clear();
     rebuildDanmakuView();
 
-    // 閲嶆柊璁剧疆LiveDanmaku
+    // 重新创建弹幕连接对象
     liveDanmaku = site.liveSite.getDanmaku();
 
-    // 鍋滄鎾斁
+    // 停止当前播放
     await player.stop();
 
-    // 鍒锋柊淇℃伅
+    // 重新拉取房间信息
     loadData();
   }
 
   void copyErrorDetail() {
-    Utils.copyToClipboard('''鐩存挱骞冲彴锛?{rxSite.value.name}
-鎴块棿鍙凤細${rxRoomId.value}
-閿欒淇℃伅锛?
+    Utils.copyToClipboard('''直播平台：${rxSite.value.name}
+房间号：${rxRoomId.value}
+错误信息：
 ${error?.toString()}
 ----------------
 ${error?.stackTrace}''');
@@ -1835,27 +2206,26 @@ ${error?.stackTrace}''');
     _refreshDanmakuOverlay("窗口重新聚焦");
     unawaited(
       _recoverPlaybackAfterForeground(
-        "绐楀彛閲嶆柊鑱氱劍",
+        "窗口重新聚焦",
         since: windowBlurredAt,
         previousPosition: positionBeforeWindowBlur,
       ),
     );
   }
 
-  // 鐢ㄤ簬鍚姩寮€鎾椂闀胯绠楀拰鏇存柊鐨勫嚱鏁?
+  // 启动并更新开播时长计时器
   void startLiveDurationTimer() {
-    // 濡傛灉涓嶆槸鐩存挱鐘舵€佹垨鑰?showTime 涓虹┖锛屽垯涓嶅惎鍔ㄥ畾鏃跺櫒
+    // 非开播状态，或没有 showTime 时，不启动计时器。
     if (!(detail.value?.status ?? false) || detail.value?.showTime == null) {
-      liveDuration.value = "00:00:00"; // 鏈紑鎾椂鏄剧ず 00:00:00
+      liveDuration.value = "00:00:00"; // 未开播时显示 00:00:00
       _liveDurationTimer?.cancel();
       return;
     }
 
     try {
       int startTimeStamp = int.parse(detail.value!.showTime!);
-      // 鍙栨秷涔嬪墠鐨勫畾鏃跺櫒
+      // 先取消旧计时器，再启动新的。
       _liveDurationTimer?.cancel();
-      // 鍒涘缓鏂扮殑瀹氭椂鍣紝姣忕鏇存柊涓€娆?
       _liveDurationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         int currentTimeStamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         int durationInSeconds = currentTimeStamp - startTimeStamp;
@@ -1869,7 +2239,7 @@ ${error?.stackTrace}''');
         liveDuration.value = formattedDuration;
       });
     } catch (e) {
-      liveDuration.value = "--:--:--"; // 閿欒鏃舵樉绀?--:--:--
+      liveDuration.value = "--:--:--"; // 解析失败时显示占位值
     }
   }
 
@@ -1885,7 +2255,7 @@ ${error?.stackTrace}''');
 
     liveDanmaku.stop();
     danmakuController = null;
-    _liveDurationTimer?.cancel(); // 椤甸潰鍏抽棴鏃跺彇娑堝畾鏃跺櫒
+    _liveDurationTimer?.cancel(); // 页面关闭时取消计时器
     super.onClose();
   }
 }

@@ -1,7 +1,7 @@
 {
-    "version": "1.3.5",
-    "version_num": 10305,
-    "version_desc": "- 修复虎牙播放中断 #723 @SlotSun\n- 修复哔哩哔哩加载失败",
-    "prerelease":true,
-    "download_url": "https://github.com/xiaoyaocz/dart_simple_live/releases"
+    "version": "1.7.0",
+    "version_num": 10700,
+    "version_desc": "- 修复直播间内通过推荐与历史再次进房时的页面套娃、返回黑屏与房间未正确切换问题\n- 同步播放器交互修复与 UTF-8 中文文案清理\n- 更新 TV 正式发布流程与构建链路",
+    "prerelease": false,
+    "download_url": "https://github.com/June6699/dart_simple_live/releases"
 }
