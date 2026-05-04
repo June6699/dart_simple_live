@@ -197,8 +197,25 @@ class AppStyle {
   static double get statusBarHeight => MediaQuery.of(Get.context!).padding.top;
 
   /// 底部导航条的高度
-  static double get bottomBarHeight =>
-      MediaQuery.of(Get.context!).padding.bottom;
+  static double get bottomBarHeight {
+    final mediaQuery = MediaQuery.of(Get.context!);
+    final viewPadding = mediaQuery.viewPadding.bottom;
+    final padding = mediaQuery.padding.bottom;
+    return viewPadding > padding ? viewPadding : padding;
+  }
+
+  static EdgeInsets pagePadding({
+    double horizontal = 12,
+    double top = 12,
+    double bottom = 12,
+  }) {
+    return EdgeInsets.fromLTRB(
+      horizontal,
+      top,
+      horizontal,
+      bottomBarHeight + bottom,
+    );
+  }
 
   static Divider get divider => Divider(
         height: 1,

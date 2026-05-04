@@ -217,8 +217,8 @@ Widget _buildFullTopBar(
   required EdgeInsets padding,
 }) {
   return Obx(() {
-    final visible =
-        controller.showControlsState.value && !controller.lockControlsState.value;
+    final visible = controller.showControlsState.value &&
+        !controller.lockControlsState.value;
     final detail = controller.detail.value;
     final title = detail?.title ?? "直播间";
     final userName = detail?.userName ?? "";
@@ -321,8 +321,8 @@ Widget _buildFullBottomBar(
   required GlobalKey volumeButtonKey,
 }) {
   return Obx(() {
-    final visible =
-        controller.showControlsState.value && !controller.lockControlsState.value;
+    final visible = controller.showControlsState.value &&
+        !controller.lockControlsState.value;
     final showDanmaku = controller.showDanmakuState.value;
 
     return AnimatedPositioned(
@@ -556,8 +556,8 @@ Widget _buildSideLockButton(
   required bool alignLeft,
 }) {
   return Obx(() {
-    final visible =
-        controller.showControlsState.value || controller.lockControlsState.value;
+    final visible = controller.showControlsState.value ||
+        controller.lockControlsState.value;
     final offset = -(64 + (alignLeft ? padding.left : padding.right));
     return AnimatedPositioned(
       top: 0,
@@ -775,19 +775,19 @@ void showPlayerSettings(LiveRoomController controller) {
             const RadioListTile(
               value: 0,
               contentPadding: AppStyle.edgeInsetsH4,
-              title: Text("Fit"),
+              title: Text("适应"),
               visualDensity: VisualDensity.compact,
             ),
             const RadioListTile(
               value: 1,
               contentPadding: AppStyle.edgeInsetsH4,
-              title: Text("Stretch"),
+              title: Text("拉伸"),
               visualDensity: VisualDensity.compact,
             ),
             const RadioListTile(
               value: 2,
               contentPadding: AppStyle.edgeInsetsH4,
-              title: Text("Cover"),
+              title: Text("铺满"),
               visualDensity: VisualDensity.compact,
             ),
             const RadioListTile(
@@ -826,18 +826,20 @@ void showQuickAccess(LiveRoomController controller) {
           leading: const Icon(Remix.play_list_2_line),
           title: const Text("关注列表"),
           subtitle: const Text("快速切到已关注的直播间"),
-          onTap: () {
-            Utils.hideRightDialog();
-            showFollowUser(controller);
+          onTap: () async {
+            await Utils.switchRightDialog(() {
+              showFollowUser(controller);
+            });
           },
         ),
         ListTile(
           leading: const Icon(Remix.history_line),
           title: const Text("观看历史"),
           subtitle: const Text("打开已经看过的直播间记录"),
-          onTap: () {
-            Utils.hideRightDialog();
-            controller.openHistoryPage();
+          onTap: () async {
+            await Utils.switchRightDialog(() async {
+              controller.openHistoryPage();
+            });
           },
         ),
         ListTile(
@@ -847,9 +849,10 @@ void showQuickAccess(LiveRoomController controller) {
           enabled: controller.hasCategoryRecommendation,
           onTap: !controller.hasCategoryRecommendation
               ? null
-              : () {
-                  Utils.hideRightDialog();
-                  controller.openCategoryRecommendation();
+              : () async {
+                  await Utils.switchRightDialog(() async {
+                    controller.openCategoryRecommendation();
+                  });
                 },
         ),
       ],

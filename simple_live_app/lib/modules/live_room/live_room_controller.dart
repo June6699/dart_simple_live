@@ -445,7 +445,9 @@ class LiveRoomController extends PlayerController
           ),
           ListTile(
             leading: Icon(
-              isTempMuted ? Icons.volume_up_outlined : Icons.volume_off_outlined,
+              isTempMuted
+                  ? Icons.volume_up_outlined
+                  : Icons.volume_off_outlined,
             ),
             title: Text(isTempMuted ? "取消临时禁言" : "加入临时禁言"),
             subtitle: const Text("只在当前直播间本次会话内有效"),
@@ -545,8 +547,7 @@ class LiveRoomController extends PlayerController
       msg.color.b,
     );
     final baseDelayMs = AppSettingsController.instance.getDanmuDelayMs(site.id);
-    final totalDelayMs =
-        baseDelayMs + (site.id == Constant.kHuya ? 1000 : 0);
+    final totalDelayMs = baseDelayMs + (site.id == Constant.kHuya ? 1000 : 0);
     final delay = Duration(milliseconds: totalDelayMs.clamp(0, 6000));
     rememberDanmakuReplay(
       msg.message,
@@ -1223,7 +1224,7 @@ class LiveRoomController extends PlayerController
     DBService.instance.addOrUpdateHistory(history);
   }
 
-  /// 鍏虫敞鐢ㄦ埛
+  /// 关注用户
   void followUser() {
     if (detail.value == null) {
       return;
@@ -1398,7 +1399,7 @@ class LiveRoomController extends PlayerController
 
   void showPlayerSettingsSheet() {
     Utils.showBottomSheet(
-      title: "鐢婚潰灏哄",
+      title: "画面尺寸",
       child: Obx(
         () => RadioGroup(
           groupValue: AppSettingsController.instance.scaleMode.value,
@@ -1411,17 +1412,17 @@ class LiveRoomController extends PlayerController
             children: const [
               RadioListTile(
                 value: 0,
-                title: Text("閫傚簲"),
+                title: Text("适应"),
                 visualDensity: VisualDensity.compact,
               ),
               RadioListTile(
                 value: 1,
-                title: Text("鎷変几"),
+                title: Text("拉伸"),
                 visualDensity: VisualDensity.compact,
               ),
               RadioListTile(
                 value: 2,
-                title: Text("閾烘弧"),
+                title: Text("铺满"),
                 visualDensity: VisualDensity.compact,
               ),
               RadioListTile(
@@ -1636,9 +1637,8 @@ class LiveRoomController extends PlayerController
           category,
           page: targetPage,
         );
-        final fetched = result.items
-            .where((item) => item.roomId != roomId)
-            .toList();
+        final fetched =
+            result.items.where((item) => item.roomId != roomId).toList();
         if (refresh) {
           rooms.assignAll(fetched);
           page.value = 2;

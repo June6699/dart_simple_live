@@ -18,7 +18,7 @@ class FollowSettingsPage extends GetView<AppSettingsController> {
         title: const Text("关注设置"),
       ),
       body: ListView(
-        padding: AppStyle.edgeInsetsA12,
+        padding: AppStyle.pagePadding(),
         children: [
           SettingsCard(
             child: Column(
@@ -56,9 +56,8 @@ class FollowSettingsPage extends GetView<AppSettingsController> {
                 Obx(
                   () {
                     var threadCount = controller.updateFollowThreadCount.value;
-                    var displayValue = threadCount == 0
-                        ? "自动 (根据 CPU 核心数)"
-                        : "$threadCount";
+                    var displayValue =
+                        threadCount == 0 ? "自动 (根据 CPU 核心数)" : "$threadCount";
 
                     return SettingsAction(
                       title: "更新并发数",

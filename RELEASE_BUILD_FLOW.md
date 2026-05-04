@@ -1,10 +1,11 @@
 # SimpleLive Release 预编译与发布流程
 
-这份文档记录当前仓库在 `Windows / Android / Linux` 三个平台上的实际可用预编译流程，也记录了这次本地多平台构建后确认过的注意事项。
+这份文档记录当前仓库在 `Windows / Android / Android TV / Linux` 四个平台上的实际可用预编译流程，也记录了这次本地多平台构建后确认过的注意事项。
 
 目标很明确：
 
 - 本地先验证 Windows 和 Android
+- 本地同步验证 Android TV
 - Linux 优先用 GitHub Actions 正式构建
 - 如果确实需要本地重新打 Linux 包，只把 WSL 当 Linux 构建环境，不要求在 WSL 里运行图形界面
 - 所有最终成品统一归档到 `C:\softwares\dart_simple_live\release`
@@ -83,6 +84,18 @@
 唯一需要补的一条规则是：
 
 - 从 `own` 同步到 `public fork` 时，不是直接原样推过去，而是先做一次“公开裁剪”
+
+发布前先执行一次远程校验，避免把私有提交直接推到公开仓库：
+
+```powershell
+cd C:\softwares\dart_simple_live
+git remote -v
+```
+
+当前期望结果：
+
+- `origin -> https://github.com/June6699/dart_simple_live_own.git`
+- `fork -> https://github.com/June6699/dart_simple_live.git`
 
 当前公开仓库不应包含这些文件：
 
@@ -884,4 +897,4 @@ gh release view v1.12.0 --repo June6699/dart_simple_live --json assets,url
 3. 本地打出新的 `linux.zip` 和 `linux.deb`
 4. 复制回 `release\vX.Y.Z\linux`
 
-照这份流程执行，当前仓库已经可以稳定完成一轮 `Windows / Android / Linux` 预编译与正式发版，同时也能把私有开发仓和公开 fork 仓库长期分开维护。
+照这份流程执行，当前仓库已经可以稳定完成一轮 `Windows / Android / Android TV / Linux` 预编译与正式发版，同时也能把私有开发仓和公开 fork 仓库长期分开维护。

@@ -27,6 +27,7 @@ class HistoryPage extends GetView<HistoryController> {
         ],
       ),
       body: PageGridView(
+        padding: AppStyle.pagePadding(),
         crossAxisSpacing: 12,
         crossAxisCount: rowCount,
         pageController: controller,

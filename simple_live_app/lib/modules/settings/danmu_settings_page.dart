@@ -19,7 +19,7 @@ class DanmuSettingsPage extends StatelessWidget {
         title: const Text("弹幕设置"),
       ),
       body: ListView(
-        padding: AppStyle.edgeInsetsA12,
+        padding: AppStyle.pagePadding(),
         children: const [
           DanmuSettingsView(),
         ],

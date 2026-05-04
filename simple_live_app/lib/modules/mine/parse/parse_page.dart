@@ -14,7 +14,7 @@ class ParsePage extends GetView<ParseController> {
         title: const Text("链接解析"),
       ),
       body: ListView(
-        padding: AppStyle.edgeInsetsA12,
+        padding: AppStyle.pagePadding(),
         children: [
           buildCard(
             context: context,

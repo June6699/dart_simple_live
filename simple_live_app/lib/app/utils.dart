@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
@@ -180,6 +181,14 @@ class Utils {
 
   static void hideRightDialog() {
     SmartDialog.dismiss(status: SmartStatus.allCustom);
+  }
+
+  static Future<void> switchRightDialog(
+    FutureOr<void> Function() openNext,
+  ) async {
+    await SmartDialog.dismiss(status: SmartStatus.allCustom);
+    await Future.delayed(const Duration(milliseconds: 220));
+    await openNext();
   }
 
   static Future showBottomSheet({

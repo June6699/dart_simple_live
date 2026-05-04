@@ -19,7 +19,7 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
         title: const Text("直播间设置"),
       ),
       body: ListView(
-        padding: AppStyle.edgeInsetsA12,
+        padding: AppStyle.pagePadding(),
         children: [
           Padding(
             padding: AppStyle.edgeInsetsA12.copyWith(top: 0),

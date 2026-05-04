@@ -15,6 +15,7 @@ class AccountPage extends GetView<AccountController> {
         title: const Text("账号管理"),
       ),
       body: ListView(
+        padding: AppStyle.pagePadding(top: 0),
         children: [
           const Padding(
             padding: AppStyle.edgeInsetsA12,

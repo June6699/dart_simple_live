@@ -22,7 +22,7 @@ class OtherSettingsPage extends GetView<OtherSettingsController> {
         title: const Text("其他设置"),
       ),
       body: ListView(
-        padding: AppStyle.edgeInsetsA12,
+        padding: AppStyle.pagePadding(),
         children: [
           SettingsCard(
             child: Padding(

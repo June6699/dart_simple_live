@@ -16,7 +16,7 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
         title: const Text("弹幕屏蔽"),
       ),
       body: ListView(
-        padding: AppStyle.edgeInsetsA12,
+        padding: AppStyle.pagePadding(),
         children: [
           _buildSwitchSection(),
           AppStyle.vGap24,

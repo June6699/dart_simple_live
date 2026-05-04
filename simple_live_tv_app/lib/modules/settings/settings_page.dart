@@ -135,6 +135,11 @@ class SettingsPage extends GetView<SettingsController> {
     return ListView(
       padding: AppStyle.edgeInsetsA48,
       children: [
+        Text(
+          "部分电视或盒子如果出现黑屏、只有声音没有画面，优先尝试打开“兼容模式”，仍异常时再关闭“硬件解码”。",
+          style: AppStyle.subTextStyleWhite,
+        ),
+        AppStyle.vGap24,
         Obx(
           () => SettingsItemWidget(
             foucsNode: controller.hardwareDecodeFocusNode,
@@ -486,7 +491,7 @@ class SettingsPage extends GetView<SettingsController> {
           focusNode: controller.versionFocusNode,
           title: "版本",
           subtitle: "v${Utils.packageInfo.version}",
-          onTap: ()=>{},
+          onTap: () => {},
         ),
       ],
     );
