@@ -53,15 +53,22 @@ jobs:
           cd simple_live_tv_app
           flutter build apk --release --split-per-abi
 
+      - name: Rename APK for Release
+        run: |
+          cd simple_live_tv_app/build/app/outputs/flutter-apk
+          cp app-armeabi-v7a-release.apk SimpleLive-TV-armeabi-v7a-release.apk
+          cp app-arm64-v8a-release.apk SimpleLive-TV-arm64-v8a-release.apk
+          cp app-x86_64-release.apk SimpleLive-TV-x86_64-release.apk
+
       #上传APK至Artifacts
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android_tv
           path: |
-            simple_live_tv_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            simple_live_tv_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            simple_live_tv_app/build/app/outputs/flutter-apk/app-x86_64-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-armeabi-v7a-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-arm64-v8a-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-x86_64-release.apk
 
       #读取版本信息
       - name: Read version
@@ -83,9 +90,9 @@ jobs:
           prerelease: ${{ fromJson(steps.version.outputs.content).prerelease }}
           token: ${{ github.token }}
           files: |
-            simple_live_tv_app/build/app/outputs/flutter-apk/app-x86_64-release.apk
-            simple_live_tv_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            simple_live_tv_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-x86_64-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-arm64-v8a-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-armeabi-v7a-release.apk
 
       #完成
       - run: echo "🍏 This job's status is ${{ job.status }}."

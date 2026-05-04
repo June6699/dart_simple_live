@@ -75,6 +75,54 @@ body:
         - 开发版(Actions)
       default: 0
 
+  - type: input
+    id: release-tag
+    attributes:
+      label: 下载的 Release 名称
+      description: 请填写你下载时看到的完整 release 名称或版本目录
+      placeholder: ex. v1.12.0 / tv_v1.7.0 / Actions run #123
+    validations:
+      required: true
+
+  - type: input
+    id: package-file
+    attributes:
+      label: 安装包 / 压缩包完整文件名
+      description: 请尽量填写完整文件名，不要只写“最新版”
+      placeholder: ex. SimpleLive-TV-arm64-v8a-release.apk
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package-abi
+    validations:
+      required: true
+    attributes:
+      label: 安装包架构 / 变体
+      description: 如果不确定，请看文件名里的 arm64-v8a / armeabi-v7a / x86_64 / windows / linux 等字样
+      options:
+        - arm64-v8a
+        - armeabi-v7a
+        - x86_64
+        - universal / 未区分
+        - Windows zip
+        - Linux zip
+        - Linux deb
+        - 其他，请在备注里补充
+
+  - type: textarea
+    id: install-source-detail
+    attributes:
+      label: 下载来源与安装方式
+      description: 请写清是从 Releases、Actions、群文件、网盘还是他人转发处下载，以及你是如何安装的
+      placeholder: |
+        ex.
+        - 来源：GitHub Releases 的 tv_v1.7.0
+        - 文件：SimpleLive-TV-arm64-v8a-release.apk
+        - 安装方式：adb install -r / 文件管理器本地安装
+    validations:
+      required: true
+
   - type: dropdown
     id: platform
     validations:
