@@ -9,12 +9,13 @@ body:
       value: |
         请把一个建议拆成一个 `Enhance`，不要把多个完全不同的需求塞进同一个 Issue。
         如果你只是想分享使用妙招、配置经验或一般性提问，请改用 `Discussions`。
+        请知悉本项目不会开发的内容：
 
   - type: checkboxes
     id: terms
     attributes:
       label: 非重复的Issue
-      description: 先去Issues列表中查找下是否存在相似的Issue，如果有了就不要重复发了
+      description: 先去Issues列表中查找下是否存在相似的功能推荐，如果有了请在issue下继续添加讨论
       options:
         - label: 已确认没有相似的Issue
           required: true
@@ -34,11 +35,11 @@ body:
       description: 这个功能针对什么平台
       options:
         - label: Android
-        - label: iOS
+        - label: Android TV
+        - label: IOS
         - label: MacOS
         - label: Windows
         - label: Linux
-        - label: Android TV
 
   - type: dropdown
     id: request-type
