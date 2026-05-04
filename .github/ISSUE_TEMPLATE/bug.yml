@@ -58,38 +58,8 @@ body:
     id: version
     attributes:
       label: 版本号
-      description: 请填写你使用的APP版本号
-      placeholder: ex. 1.0.1
-    validations:
-      required: true
- 
-  - type: dropdown
-    id: release-type
-    validations:
-      required: true
-    attributes:
-      label: 使用版本
-      description: 使用的是什么版本，从哪里下载的
-      options:
-        - 正式版(Releases)
-        - 开发版(Actions)
-      default: 0
-
-  - type: input
-    id: release-tag
-    attributes:
-      label: 下载的 Release 名称
-      description: 请填写你下载时看到的完整 release 名称或版本目录
-      placeholder: ex. v1.12.0 / tv_v1.7.0 / Actions run #123
-    validations:
-      required: true
-
-  - type: input
-    id: package-file
-    attributes:
-      label: 安装包 / 压缩包完整文件名
-      description: 请尽量填写完整文件名，不要只写“最新版”
-      placeholder: ex. SimpleLive-TV-arm64-v8a-release.apk
+      description: 请填写你使用的APP版本号，也可以直接给出release的链接
+      placeholder: ex. 1.0.1 tv_1.7.0
     validations:
       required: true
 
@@ -143,19 +113,19 @@ body:
     id: os-version
     attributes:
       label: 操作系统信息
-      description: 请填写你的操作系统信息版本
+      description: 请填写你的操作系统信息版本，如不确定可不填
       placeholder: ex. Windows 10 21H1 / MIUI 15 Android 12
     validations:
-      required: true
+      required: false
 
   - type: input
     id: device
     attributes:
       label: 设备信息
-      description: 请填写你的设备信息
+      description: 请填写你的设备信息，如不确定可不填
       placeholder: ex. PC / iPhone 12 Pro Max
     validations:
-      required: true
+      required: false
 
   - type: input
     id: live-platform
