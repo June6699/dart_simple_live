@@ -106,7 +106,7 @@
   - Linux 自动发布
   - 触发方式：推送 `v*` tag
   - 当前使用 `ubuntu-22.04`
-  - 当前 Flutter 版本：`3.38.x`
+  - 当前 GitHub Actions Flutter 版本：`3.41.x`
   - 当前 Linux 打包方式：`flutter_distributor package --platform linux --targets deb,zip --skip-clean`
 - [publish_app_release_macos_manual.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release_macos_manual.yml)
   - macOS 手动构建入口
@@ -324,7 +324,8 @@ WSL 在这里的作用只是：
 正确做法：
 
 - 在 WSL 里单独准备一份 Linux Flutter 工具链
-- 这次验证可用的是 `Flutter 3.38.10`
+- 这次本地 Linux 打包验证可用的是 `Flutter 3.38.10`
+- 当前 Windows / Android / Android TV 本地构建已切换到 `C:\softwares\flutter` 下的 `Flutter 3.41.9`
 
 例如：
 
