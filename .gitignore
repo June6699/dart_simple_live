@@ -5,7 +5,7 @@ simple_live_tv_app/.vscode/settings.json
 # local release artifacts
 release/
 
-# scripts
+# scripts 
 build_android_apk.bat
 build_tv_apk.bat
 deploy_windows.bat
