@@ -602,6 +602,7 @@ gh run list --repo June6699/dart_simple_live --workflow publish_app_release_linu
 - PR 保护分支不能删除、强推、改名、覆盖，也不能为了“清理 public 分支”而动它
 - 不要执行 `gh pr close`、`gh pr reopen`、`gh pr edit`、删除 PR 来源分支、修改 PR base/head 等会改变 PR 状态的命令
 - 只允许只读查看 PR 状态；任何 PR 变更都必须等用户明确说“处理这个 PR”
+- 如果旧 PR 因来源分支被 force-push / recreated 导致 GitHub 拒绝 reopen，不要继续改旧 PR；确认用户授权后，用当前公开 `fork` 的对应分支重新创建一个新 PR，并在正文里引用旧 PR 编号
 
 公开仓库根目录当前必须删除的文件：
 
@@ -896,6 +897,7 @@ gh release view v1.12.0 --repo June6699/dart_simple_live --json assets,url
 9. 如果这次要同步公开 `fork`，确认公开 source zip 是基于公开裁剪提交生成的
 10. 如果这次要同步公开 `fork`，确认公开远端没有创建临时分支或功能分支
 11. 如果公开 `fork` 有用于向上游作者仓库提 PR 的分支，确认没有删除、强推、改名、覆盖这些 PR 保护分支，也没有关闭或修改对应 PR
+12. 如果 PR 因 head 分支被 force-push / recreated 而无法 reopen，确认新 PR 已创建并在正文中说明替代的旧 PR 编号
 
 ## 21. 建议的最短执行顺序
 
