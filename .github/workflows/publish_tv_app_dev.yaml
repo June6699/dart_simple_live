@@ -1,0 +1,62 @@
+name: app-build-action
+#鎺ㄩ€乀ag鏃惰Е鍙?
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "dev_tv_v*"
+jobs:
+  build-tv:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Prepare Android keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TV_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.TV_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.TV_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TV_KEY_ALIAS }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" && -n "$KEY_ALIAS" ]]; then
+            printf '%s' "$KEYSTORE_BASE64" | openssl base64 -d -A > simple_live_tv_app/android/release-keystore.jks
+            printf 'storeFile=../release-keystore.jks\nstorePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > simple_live_tv_app/android/key.properties
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+          cache: "gradle"
+
+      - name: Flutter action
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.x"
+          cache: true
+
+      - name: Restore packages
+        run: |
+          cd simple_live_tv_app
+          flutter pub get
+
+      - name: Build APK
+        run: |
+          cd simple_live_tv_app
+          flutter build apk --release --split-per-abi
+
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android_tv
+          path: |
+            simple_live_tv_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            simple_live_tv_app/build/app/outputs/flutter-apk/app-x86_64-release.apk
+
+      - run: echo "馃崗 This job's status is ${{ job.status }}."

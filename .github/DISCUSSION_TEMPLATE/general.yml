@@ -1,0 +1,104 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        适合放这里的内容：
+        - 使用交流
+        - 安装求助
+        - 反馈补充信息
+        - 一般性讨论
+
+        如果你已经能稳定复现 `BUG`，请优先发 `Issues`。
+
+  - type: dropdown
+    id: discussion-kind
+    attributes:
+      label: 讨论类型
+      description: 请选择更接近你这次发帖目的的类型
+      options:
+        - 安装 / 下载求助
+        - 使用交流
+        - 问题补充信息
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: release-type
+    attributes:
+      label: 下载来源
+      description: 你这次使用的包是从哪里拿到的
+      options:
+        - GitHub Releases
+        - GitHub Actions
+        - 群文件 / 网盘
+        - 他人转发
+        - 本地自行构建
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: release-tag
+    attributes:
+      label: Release 名称 / 构建标识
+      description: 请写完整版本，不要只写“最新版”
+      placeholder: ex. v1.12.0 / tv_v1.7.0 / Actions run #123
+    validations:
+      required: true
+
+  - type: input
+    id: package-file
+    attributes:
+      label: 文件完整名称
+      description: 请尽量写安装包或压缩包完整文件名
+      placeholder: ex. SimpleLive-TV-arm64-v8a-release.apk
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package-abi
+    attributes:
+      label: 文件架构 / 变体
+      description: 如果不确定，请看文件名中的 arm64-v8a / armeabi-v7a / x86_64 等关键字
+      options:
+        - arm64-v8a
+        - armeabi-v7a
+        - x86_64
+        - universal / 未区分
+        - Windows zip
+        - Linux zip
+        - Linux deb
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行平台
+      options:
+        - Android
+        - Android TV
+        - Windows
+        - Linux
+        - macOS
+        - iOS
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备信息
+      description: 请尽量写清设备型号
+      placeholder: ex. NVIDIA SHIELD Android TV / Windows 11 PC
+
+  - type: textarea
+    id: content
+    attributes:
+      label: 讨论内容
+      description: 请详细说明你的问题、想法或补充信息
+    validations:
+      required: true

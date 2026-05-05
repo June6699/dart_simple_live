@@ -1,0 +1,141 @@
+name: BUG报告
+title: "[BUG] 请填写简短易读的标题"
+description: "使用过程中遇到了BUG"
+labels:
+  - "bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请只提交一个明确的 `BUG`。
+        如果你想分享使用妙招、配置经验或一般性提问，请改用 `Discussions`。
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: 非重复的Issue
+      description: 先去Issues列表中查找下是否存在相似的Issue，如果有了就不要重复发了
+      options:
+        - label: 已确认没有相似的Issue
+          required: true
+
+  - type: textarea
+    id: description
+    validations:
+      required: true
+    attributes:
+      label: BUG内容
+      description: 请详细描述你遇到的问题
+
+  - type: textarea
+    id: steps
+    validations:
+      required: true
+    attributes:
+      label: 重现步骤
+      render: plain text
+      description: 请详细描述重现步骤
+      placeholder: |
+        1. xxxx
+        2. xxxx
+        3. xxxx
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或视频
+      description: 请上传BUG截图、或视频
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 请上传日志文件
+      placeholder: |
+        可以在[其他设置]-[开启日志记录]后获取日志文件
+ 
+  - type: input
+    id: version
+    attributes:
+      label: 版本号
+      description: 请填写你使用的APP版本号，也可以直接给出release的链接
+      placeholder: ex. 1.0.1 tv_1.7.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package-abi
+    validations:
+      required: true
+    attributes:
+      label: 安装包架构 / 变体
+      description: 如果不确定，请看文件名里的 arm64-v8a / armeabi-v7a / x86_64 / windows / linux 等字样
+      options:
+        - arm64-v8a
+        - armeabi-v7a
+        - x86_64
+        - universal / 未区分
+        - Windows zip
+        - Linux zip
+        - Linux deb
+        - 其他，请在备注里补充
+
+  - type: textarea
+    id: install-source-detail
+    attributes:
+      label: 下载来源与安装方式
+      description: 请写清是从 Releases、Actions、群文件、网盘还是他人转发处下载，以及你是如何安装的
+      placeholder: |
+        ex.
+        - 来源：GitHub Releases 的 tv_v1.7.0
+        - 文件：SimpleLive-TV-arm64-v8a-release.apk
+        - 安装方式：adb install -r / 文件管理器本地安装
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    validations:
+      required: true
+    attributes:
+      label: 运行平台
+      description: 选择你当前运行应用的平台
+      multiple: false
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iOS
+        - Android TV
+
+  - type: input
+    id: os-version
+    attributes:
+      label: 操作系统信息
+      description: 请填写你的操作系统信息版本，如不确定可不填
+      placeholder: ex. Windows 10 21H1 / MIUI 15 Android 12
+    validations:
+      required: false
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备信息
+      description: 请填写你的设备信息，如不确定可不填
+      placeholder: ex. PC / iPhone 12 Pro Max
+    validations:
+      required: false
+
+  - type: input
+    id: live-platform
+    attributes:
+      label: 直播平台 / 房间信息
+      description: 如果问题与某个直播平台或具体直播间有关，请尽量写清楚
+      placeholder: ex. B站 / 抖音 / 虎牙 / 具体房间链接
+
+  - type: textarea
+    id: remark
+    attributes:
+      label: 备注
+      description: 其他信息

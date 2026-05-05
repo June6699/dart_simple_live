@@ -1,0 +1,7 @@
+{
+    "version": "1.7.1",
+    "version_num": 10701,
+    "version_desc": "- 修复部分 Android TV 设备进入直播间有声音但画面黑屏的问题\n- 关闭 Android 端 Impeller 渲染，规避部分电视 GPU / Surface 组合的兼容性问题\n- 回退 Android 原生视频库到 1.3.7，靠近旧版可正常出画面的播放链路\n- TV 播放已在本地 Android Emulator - Medium_Phone（Android 16 / API 36 / x86_64）验证通过，虎牙、斗鱼、抖音均可正常出画面\n- 下载建议：arm64-v8a 适合大多数 64 位电视 / 盒子，armeabi-v7a 适合老设备，x86_64 适合模拟器",
+    "prerelease": false,
+    "download_url": "https://github.com/June6699/dart_simple_live/releases/tag/tv_v1.7.1"
+}
