@@ -1,7 +1,7 @@
 name: simple_live_tv_app
 description: A new Flutter project.
 publish_to: "none"
-version: 1.7.0+10700
+version: 1.7.1+10701
 
 environment:
   sdk: ">=3.1.2 <4.0.0"
@@ -54,6 +54,7 @@ dependencies:
 
 dependency_overrides:
   fading_edge_scrollview: ^4.1.1
+  media_kit_libs_android_video: 1.3.7
 
 dev_dependencies:
   flutter_test:
