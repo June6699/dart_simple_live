@@ -789,8 +789,8 @@ gh run download <run_id> --repo June6699/dart_simple_live -n linux -D C:\softwar
 ### 17.2 手动补传 Release
 
 ```powershell
-$env:HTTP_PROXY='http://127.0.0.1:10808'
-$env:HTTPS_PROXY='http://127.0.0.1:10808'
+$env:HTTP_PROXY='http://127.0.0.1:51888'
+$env:HTTPS_PROXY='http://127.0.0.1:51888'
 $env:PATH='C:\softwares\GitHubCli;C:\softwares\Git\cmd;'+$env:PATH
 
 gh release upload v1.12.0 --repo June6699/dart_simple_live --clobber `
@@ -812,20 +812,20 @@ gh release upload v1.12.0 --repo June6699/dart_simple_live --clobber `
 
 本机可用代理：
 
-- `127.0.0.1:10808`
+- `127.0.0.1:51888`
 
 测试：
 
 ```powershell
-Test-NetConnection 127.0.0.1 -Port 10808
-curl.exe -I -m 20 --proxy http://127.0.0.1:10808 https://uploads.github.com
+Test-NetConnection 127.0.0.1 -Port 51888
+curl.exe -I -m 20 --proxy http://127.0.0.1:51888 https://uploads.github.com
 ```
 
 上传前建议：
 
 ```powershell
-$env:HTTP_PROXY='http://127.0.0.1:10808'
-$env:HTTPS_PROXY='http://127.0.0.1:10808'
+$env:HTTP_PROXY='http://127.0.0.1:51888'
+$env:HTTPS_PROXY='http://127.0.0.1:51888'
 ```
 
 这次实际踩到的坑：
