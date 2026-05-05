@@ -466,13 +466,13 @@ packages:
     source: hosted
     version: "1.1.11"
   media_kit_libs_android_video:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
       name: media_kit_libs_android_video
-      sha256: "3f6274e5ab2de512c286a25c327288601ee445ed8ac319e0ef0b66148bd8f76c"
+      sha256: adff9b571b8ead0867f9f91070f8df39562078c0eb3371d88b9029a2d547d7b7
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "1.3.8"
+    version: "1.3.7"
   media_kit_libs_ios_video:
     dependency: transitive
     description:
