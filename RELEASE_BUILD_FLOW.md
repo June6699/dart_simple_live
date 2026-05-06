@@ -109,6 +109,17 @@ git remote -v
 
 当前主应用与 TV 应用发布相关工作流拆成 6 个文件：
 
+- [publish_app_dev.yaml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_dev.yaml)
+  - 主应用开发构建入口
+  - 触发方式：推送 `dev_v*` tag 或手动 `workflow_dispatch`
+  - 手动运行时支持分别勾选：
+    - `Android`
+    - `iOS`
+    - `macOS`
+    - `Windows`
+    - `Linux`
+  - 不再强制一次把 5 个平台全部跑完
+
 - [publish_app_release.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release.yml)
   - Android 自动发布
   - 触发方式：推送 `v*` tag
