@@ -44,7 +44,7 @@ dependencies:
 
   #系统交互
   package_info_plus: ^9.0.0 #包信息
-  device_info_plus: ^12.2.0 #设备信息
+  device_info_plus: 12.2.0 #设备信息
   url_launcher: ^6.3.2 #打开链接
   share_plus: ^12.0.1 #分享
   path_provider: ^2.1.5 #常用路径
@@ -58,7 +58,7 @@ dependencies:
   window_manager: ^0.5.1 #窗口管理
   floating: ^6.0.0 #PIP画中画
   flutter_inappwebview: ^6.1.5 #WebView
-  connectivity_plus: ^7.0.0 #网络状态
+  connectivity_plus: 7.0.0 #网络状态
   qr_code_scanner_plus: ^2.0.14 #二维码扫描
   volume_controller: ^3.4.0 #音量控制
 
