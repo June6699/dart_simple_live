@@ -58,7 +58,7 @@ body:
     id: version
     attributes:
       label: 版本号
-      description: 请填写你使用的APP版本号，也可以直接给出release的链接
+      description: 请填写你使用的APP版本号，最好能直接给出release的链接
       placeholder: ex. 1.0.1 tv_1.7.0
     validations:
       required: true
@@ -71,6 +71,7 @@ body:
       label: 安装包架构 / 变体
       description: 如果不确定，请看文件名里的 arm64-v8a / armeabi-v7a / x86_64 / windows / linux 等字样
       options:
+        - Android
         - arm64-v8a
         - armeabi-v7a
         - x86_64
@@ -78,6 +79,7 @@ body:
         - Windows zip
         - Linux zip
         - Linux deb
+        - TV
         - 其他，请在备注里补充
 
   - type: textarea
