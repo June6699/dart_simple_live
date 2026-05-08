@@ -16,6 +16,7 @@ tmp_typora_skill_test/
 tmp_typora_skill_test_v2/
 tmp_typora_skill_test_v4/
 tmp_typora_skill_test_v5/
+.codex_tmp/
 
 # macOS Spotlight Search index file
 *.DS_Store
@@ -30,3 +31,4 @@ UPDATE-2026.5.4-1.12.0.md
 # others
 tmp_*.png
 tmp_*.xml
+
