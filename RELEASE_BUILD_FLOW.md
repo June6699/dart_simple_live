@@ -80,6 +80,10 @@
 
 - `own` 作为“持续更新的私有主仓”
 - `public fork` 作为“隔一段时间发布一次的公开镜像”
+- 私有 `own` 可以创建和保留 issue / 验证 / release 临时分支
+- 公开 `fork` 远端不允许创建任何临时分支或功能分支，只允许维护 `master`、正式 tag 和 release
+- 公开 `fork` 上已经存在、用于向上游作者仓库发起 Pull Request 的分支是保护对象，不能删除、改名、强推或覆盖
+- 上游作者仓库里的 Pull Request 不能关闭、重开、改 base、改 head、删除来源分支或做任何会改变 PR 状态的操作，除非用户明确点名要求处理该 PR
 
 唯一需要补的一条规则是：
 
@@ -97,13 +101,15 @@ git remote -v
 - `origin -> https://github.com/June6699/dart_simple_live_own.git`
 - `fork -> https://github.com/June6699/dart_simple_live.git`
 
-当前公开仓库不应包含这些文件：
+当前公开仓库根目录不应包含这些文件：
 
 - `build_android_apk.bat`
 - `build_tv_apk.bat`
 - `deploy_windows.bat`
 - `UPDATE.md`
 - `RELEASE_BUILD_FLOW.md`
+- 除 `README.md` 之外的其他根目录 `.md` 文档
+- 其他根目录 `.bat` 脚本
 
 ## 4. 当前 GitHub Actions 工作流
 
@@ -587,34 +593,51 @@ gh run list --repo June6699/dart_simple_live --workflow publish_app_release_linu
 
 正确做法是：
 
-1. 从私有稳定提交创建一个临时公开分支
+1. 从私有稳定提交创建一个本地临时导出工作区或本地临时分支
 2. 删除公开不该带的文件
 3. 生成一个“公开裁剪提交”
-4. 强推这个提交到 `fork/master`
-5. 强制更新 `fork` 的 `vX.Y.Z` tag
+4. 只把这个提交推到 `fork/master`，不要推任何临时分支到公开 `fork`
+5. 如需公开源码随 release 更新，再强制更新 `fork` 的 `vX.Y.Z` tag
 6. 用这个公开裁剪提交生成 source zip
 7. 上传 Android / Windows / Linux / source 资产到 `fork` release
 
-公开仓库当前必须删除的文件：
+公开 `fork` 远端只允许存在：
+
+- `master`
+- 正式 tag
+- release
+
+例外与保护规则：
+
+- 如果公开 `fork` 已经有用于向上游作者仓库提 PR 的历史分支，视为 PR 保护分支
+- PR 保护分支不能删除、强推、改名、覆盖，也不能为了“清理 public 分支”而动它
+- 不要执行 `gh pr close`、`gh pr reopen`、`gh pr edit`、删除 PR 来源分支、修改 PR base/head 等会改变 PR 状态的命令
+- 只允许只读查看 PR 状态；任何 PR 变更都必须等用户明确说“处理这个 PR”
+- 如果旧 PR 因来源分支被 force-push / recreated 导致 GitHub 拒绝 reopen，不要继续改旧 PR；确认用户授权后，用当前公开 `fork` 的对应分支重新创建一个新 PR，并在正文里引用旧 PR 编号
+
+公开仓库根目录当前必须删除的文件：
 
 - `build_android_apk.bat`
+- `build_tv_apk.bat`
 - `deploy_windows.bat`
 - `UPDATE.md`
 - `RELEASE_BUILD_FLOW.md`
+- 除 `README.md` 之外的其他根目录 `.md` 文档
+- 其他根目录 `.bat` 脚本
 
 示意流程：
 
 ```powershell
 cd C:\softwares\dart_simple_live
 git switch -c public-export-v1.12.0
-git rm build_android_apk.bat deploy_windows.bat UPDATE.md RELEASE_BUILD_FLOW.md
+git rm build_android_apk.bat build_tv_apk.bat deploy_windows.bat UPDATE.md RELEASE_BUILD_FLOW.md
 git commit -m "chore: prepare public fork release v1.12.0"
 git push fork HEAD:master --force
 git tag -f v1.12.0 HEAD
 git push fork refs/tags/v1.12.0 --force
 ```
 
-然后再基于这个公开裁剪提交生成公开 source zip。
+注意：`public-export-v1.12.0` 只能是本地临时分支或临时目录里的分支，不能推到公开 `fork`。然后再基于这个公开裁剪提交生成公开 source zip。
 
 ## 12. `release` 目录归档规则
 
@@ -800,8 +823,8 @@ gh run download <run_id> --repo June6699/dart_simple_live -n linux -D C:\softwar
 ### 17.2 手动补传 Release
 
 ```powershell
-$env:HTTP_PROXY='http://127.0.0.1:10808'
-$env:HTTPS_PROXY='http://127.0.0.1:10808'
+$env:HTTP_PROXY='http://127.0.0.1:51888'
+$env:HTTPS_PROXY='http://127.0.0.1:51888'
 $env:PATH='C:\softwares\GitHubCli;C:\softwares\Git\cmd;'+$env:PATH
 
 gh release upload v1.12.0 --repo June6699/dart_simple_live --clobber `
@@ -823,20 +846,20 @@ gh release upload v1.12.0 --repo June6699/dart_simple_live --clobber `
 
 本机可用代理：
 
-- `127.0.0.1:10808`
+- `127.0.0.1:51888`
 
 测试：
 
 ```powershell
-Test-NetConnection 127.0.0.1 -Port 10808
-curl.exe -I -m 20 --proxy http://127.0.0.1:10808 https://uploads.github.com
+Test-NetConnection 127.0.0.1 -Port 51888
+curl.exe -I -m 20 --proxy http://127.0.0.1:51888 https://uploads.github.com
 ```
 
 上传前建议：
 
 ```powershell
-$env:HTTP_PROXY='http://127.0.0.1:10808'
-$env:HTTPS_PROXY='http://127.0.0.1:10808'
+$env:HTTP_PROXY='http://127.0.0.1:51888'
+$env:HTTPS_PROXY='http://127.0.0.1:51888'
 ```
 
 这次实际踩到的坑：
@@ -881,8 +904,11 @@ gh release view v1.12.0 --repo June6699/dart_simple_live --json assets,url
 5. 本地 `release\vX.Y.Z` 已归档完成
 6. `C:\softwares\SimpleLive` 已刷新为该版本 Windows 预编译目录
 7. `release` 目录里没有把 debug 输出、临时文件混进去
-8. 如果这次要同步公开 `fork`，确认公开仓库不含 `bat / UPDATE.md / RELEASE_BUILD_FLOW.md`
+8. 如果这次要同步公开 `fork`，确认公开仓库根目录只保留 `README.md`，不含其他 `.md` 文档和任何 `.bat` 脚本
 9. 如果这次要同步公开 `fork`，确认公开 source zip 是基于公开裁剪提交生成的
+10. 如果这次要同步公开 `fork`，确认公开远端没有创建临时分支或功能分支
+11. 如果公开 `fork` 有用于向上游作者仓库提 PR 的分支，确认没有删除、强推、改名、覆盖这些 PR 保护分支，也没有关闭或修改对应 PR
+12. 如果 PR 因 head 分支被 force-push / recreated 而无法 reopen，确认新 PR 已创建并在正文中说明替代的旧 PR 编号
 
 ## 21. 建议的最短执行顺序
 
