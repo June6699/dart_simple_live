@@ -71,7 +71,7 @@ body:
       label: 安装包架构 / 变体
       description: 如果不确定，请看文件名里的 arm64-v8a / armeabi-v7a / x86_64 / windows / linux 等字样
       options:
-        - Android
+        - Android 注意Android apk ≠ TV apk
         - arm64-v8a
         - armeabi-v7a
         - x86_64
