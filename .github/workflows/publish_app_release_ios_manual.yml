@@ -1,12 +1,12 @@
-name: app-build-windows-release
+name: app-build-ios-manual
 
 on:
   workflow_dispatch:
     inputs:
-      build_windows:
-        description: "Build Windows on GitHub Actions"
+      build_ios:
+        description: "Build iOS unsigned IPA on GitHub Actions"
         type: boolean
-        default: false
+        default: true
       ref:
         description: "Git ref to build, for example master or v1.12.0"
         required: false
@@ -18,9 +18,9 @@ on:
         type: boolean
 
 jobs:
-  build-windows:
-    if: ${{ inputs.build_windows == true }}
-    runs-on: windows-latest
+  build-ios:
+    if: ${{ inputs.build_ios == true }}
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
@@ -28,27 +28,23 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+          cache: "gradle"
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.41.x"
           cache: true
 
-      - name: Enable Flutter Desktop
-        run: flutter config --enable-windows-desktop
-
       - name: Restore Packages
         run: |
           cd simple_live_app
           flutter pub get
-
-      - name: Install flutter_distributor
-        run: dart pub global activate flutter_distributor
-
-      - name: Build Windows
-        run: |
-          cd simple_live_app
-          flutter_distributor package --platform windows --targets zip --skip-clean
 
       - name: Resolve ref info
         id: ref_info
@@ -65,12 +61,24 @@ jobs:
           echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
           echo "is_tag=$is_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Windows to Artifacts
+      - name: Build iOS
+        run: |
+          cd simple_live_app
+          flutter build ios --release --no-codesign
+
+      - name: Create unsigned IPA
+        run: |
+          cd simple_live_app
+          mkdir -p build/ios/iphoneos/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/Runner.app
+          cd build/ios/iphoneos/
+          zip -q -r ios_no_sign.ipa Payload
+
+      - name: Upload IPA to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows
-          path: |
-            simple_live_app/build/dist/*/*.zip
+          name: ios
+          path: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
       - name: Upload Release
         if: ${{ inputs.upload_release && steps.ref_info.outputs.is_tag == 'true' }}
@@ -81,7 +89,7 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ contains(steps.ref_info.outputs.ref_name, 'beta') || contains(steps.ref_info.outputs.ref_name, 'alpha') || contains(steps.ref_info.outputs.ref_name, 'pre') || contains(steps.ref_info.outputs.ref_name, 'next') || contains(steps.ref_info.outputs.ref_name, 'local') }}
           token: ${{ github.token }}
-          files: |
-            simple_live_app/build/dist/*/*.zip
+          fail_on_unmatched_files: false
+          files: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
-      - run: echo "Windows job status is ${{ job.status }}."
+      - run: echo "iOS manual job status is ${{ job.status }}."

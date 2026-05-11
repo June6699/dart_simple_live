@@ -627,6 +627,12 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
                       fontSize: settings.danmuSize.value,
                       lineCount: settings.danmuLineCount.value,
                     ),
+                    lineHeight: settings.resolveDanmuLineHeight(
+                      viewportHeight: viewportHeight,
+                      area: settings.danmuArea.value,
+                      fontSize: settings.danmuSize.value,
+                      lineCount: settings.danmuLineCount.value,
+                    ),
                     duration: settings.danmuSpeed.value.toInt(),
                     opacity: settings.danmuOpacity.value,
                     fontWeight: settings.danmuFontWeight.value,

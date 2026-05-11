@@ -19,6 +19,8 @@ typedef RoomSelectionCallback = void Function(Site site, String roomId);
 /// * 需要参数的页面都应使用此类
 /// * 如不需要参数，可以使用Get.toNamed
 class AppNavigator {
+  static final Map<String, DateTime> _lastLiveRoomOpenAt = {};
+
   /// 跳转至观看记录
   static Future<dynamic> toHistory({
     RoomSelectionCallback? onRoomSelected,
@@ -54,6 +56,16 @@ class AppNavigator {
   /// 跳转至直播间
   static void toLiveRoomDetail(
       {required Site site, required String roomId}) async {
+    final roomKey = "${site.id}_$roomId";
+    final lastOpenAt = _lastLiveRoomOpenAt[roomKey];
+    final now = DateTime.now();
+    if (lastOpenAt != null &&
+        now.difference(lastOpenAt) < const Duration(milliseconds: 1500)) {
+      SmartDialog.showToast("正在打开直播间，请稍候");
+      return;
+    }
+    _lastLiveRoomOpenAt[roomKey] = now;
+
     if (site.id == Constant.kBiliBili &&
         !BiliBiliAccountService.instance.logined.value &&
         AppSettingsController.instance.bilibiliLoginTip.value) {

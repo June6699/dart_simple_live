@@ -69,6 +69,7 @@ class LiveRoomController extends PlayerController
   Rx<String?> contributionRankError = Rx<String?>(null);
   Rx<DateTime?> contributionRankUpdatedAt = Rx<DateTime?>(null);
   RxDouble danmakuViewportHeight = 0.0.obs;
+  final liveRoomFollowFilterMode = 0.obs;
   RxSet<String> tempMutedUsers = <String>{}.obs;
   bool get supportsContributionRank => const {
         Constant.kBiliBili,
@@ -121,7 +122,8 @@ class LiveRoomController extends PlayerController
 
   /// 直播间加载是否失败
   var loadError = false.obs;
-  Error? error;
+  Object? error;
+  StackTrace? errorStackTrace;
 
   // 开播时长展示状态
   var liveDuration = "00:00:00".obs;
@@ -133,6 +135,8 @@ class LiveRoomController extends PlayerController
   Duration? _positionBeforeWindowBlur;
   DateTime? _windowBlurredAt;
   bool _playerReopening = false;
+  bool _roomDisposed = false;
+  int _loadGeneration = 0;
   final Set<String> _superChatFingerprints = <String>{};
   final Set<Timer> _pendingDanmakuTimers = <Timer>{};
   Timer? _superChatRefreshTimer;
@@ -783,6 +787,8 @@ class LiveRoomController extends PlayerController
 
   @override
   void onClose() async {
+    _roomDisposed = true;
+    _loadGeneration += 1;
     WidgetsBinding.instance.removeObserver(this);
     if (Platform.isWindows) {
       windowManager.removeListener(this);
@@ -797,6 +803,7 @@ class LiveRoomController extends PlayerController
     unawaited(
       AppSettingsController.instance.setLastLiveRoomResumePending(false),
     );
+    await player.stop();
     await liveDanmaku.stop();
     super.onClose();
   }
@@ -889,10 +896,12 @@ class LiveRoomController extends PlayerController
 
   /// 加载直播间信息
   void loadData() async {
+    final loadGeneration = ++_loadGeneration;
     try {
       SmartDialog.showLoading(msg: "");
       loadError.value = false;
       error = null;
+      errorStackTrace = null;
       update();
       await liveDanmaku.stop();
       liveDanmaku = site.liveSite.getDanmaku();
@@ -905,6 +914,9 @@ class LiveRoomController extends PlayerController
       detail.value = _sanitizeRoomDetail(
         await site.liveSite.getRoomDetail(roomId: roomId),
       );
+      if (!_isCurrentLoad(loadGeneration)) {
+        return;
+      }
 
       if (site.id == Constant.kDouyin) {
         // 1.6.0 之前收藏的是 WebRid，中间一版收藏的是 RoomID，
@@ -942,6 +954,9 @@ class LiveRoomController extends PlayerController
       if (AppSettingsController.instance.contributionRankEnable.value) {
         fetchContributionRank();
       }
+      if (!_isCurrentLoad(loadGeneration)) {
+        return;
+      }
 
       addHistory();
       // 刷新关注状态
@@ -956,27 +971,44 @@ class LiveRoomController extends PlayerController
         addSysMsg("当前主播未开播，正在转播录像");
       }
       addSysMsg("正在连接弹幕服务器");
+      if (!_isCurrentLoad(loadGeneration)) {
+        return;
+      }
       initDanmau();
       liveDanmaku.start(detail.value?.danmakuData);
       startLiveDurationTimer();
-    } catch (e) {
+    } catch (e, stackTrace) {
       Log.logPrint(e);
       //SmartDialog.showToast(e.toString());
+      if (!_isCurrentLoad(loadGeneration)) {
+        return;
+      }
       loadError.value = true;
-      error = e as Error;
+      error = e;
+      errorStackTrace = stackTrace;
     } finally {
-      SmartDialog.dismiss(status: SmartStatus.loading);
+      if (_isCurrentLoad(loadGeneration)) {
+        SmartDialog.dismiss(status: SmartStatus.loading);
+      }
     }
+  }
+
+  bool _isCurrentLoad(int loadGeneration) {
+    return !_roomDisposed && loadGeneration == _loadGeneration;
   }
 
   /// 读取可用清晰度并选择默认值
   void getPlayQualites() async {
+    final loadGeneration = _loadGeneration;
     qualites.clear();
     currentQuality = -1;
 
     try {
       var playQualites =
           await site.liveSite.getPlayQualites(detail: detail.value!);
+      if (!_isCurrentLoad(loadGeneration)) {
+        return;
+      }
 
       if (playQualites.isEmpty) {
         SmartDialog.showToast("无法读取播放清晰度");
@@ -1019,6 +1051,9 @@ class LiveRoomController extends PlayerController
 
   Future<bool> _reloadPlayUrls(
       {bool resetLine = false, bool silent = false}) async {
+    if (_roomDisposed) {
+      return false;
+    }
     if (detail.value == null ||
         currentQuality < 0 ||
         currentQuality >= qualites.length) {
@@ -1027,6 +1062,9 @@ class LiveRoomController extends PlayerController
     currentQualityInfo.value = qualites[currentQuality].quality;
     var playUrl = await site.liveSite
         .getPlayUrls(detail: detail.value!, quality: qualites[currentQuality]);
+    if (_roomDisposed) {
+      return false;
+    }
     if (playUrl.urls.isEmpty) {
       if (!silent) {
         SmartDialog.showToast("无法读取播放地址");
@@ -1064,7 +1102,8 @@ class LiveRoomController extends PlayerController
   }
 
   Future<void> initPlaylist() async {
-    if (_playerReopening ||
+    if (_roomDisposed ||
+        _playerReopening ||
         currentLineIndex < 0 ||
         currentLineIndex >= playUrls.length) {
       return;
@@ -1081,6 +1120,9 @@ class LiveRoomController extends PlayerController
 
       // 重新初始化播放器，并带上当前线路的请求头。
       await initializePlayer();
+      if (_roomDisposed) {
+        return;
+      }
 
       await player.open(
         Media(
@@ -1895,10 +1937,10 @@ class LiveRoomController extends PlayerController
   Widget buildFollowUserSelection({
     required VoidCallback onClose,
   }) {
-    final filterMode = 0.obs;
     const options = ["全部", "直播中", "未开播"];
     return Obx(() {
-      final followUsers = _followUsersByFilterMode(filterMode.value);
+      final filterMode = liveRoomFollowFilterMode.value;
+      final followUsers = _followUsersByFilterMode(filterMode);
       return Stack(
         children: [
           Column(
@@ -1915,9 +1957,9 @@ class LiveRoomController extends PlayerController
                         ),
                         child: FilterButton(
                           text: options[index],
-                          selected: filterMode.value == index,
+                          selected: filterMode == index,
                           onTap: () {
-                            filterMode.value = index;
+                            liveRoomFollowFilterMode.value = index;
                           },
                         ),
                       );
@@ -2083,6 +2125,8 @@ class LiveRoomController extends PlayerController
 
     rxSite.value = site;
     rxRoomId.value = roomId;
+    _roomDisposed = false;
+    _loadGeneration += 1;
     tempMutedUsers.clear();
     danmakuViewportHeight.value = 0;
 
@@ -2112,7 +2156,7 @@ class LiveRoomController extends PlayerController
 错误信息：
 ${error?.toString()}
 ----------------
-${error?.stackTrace}''');
+${errorStackTrace ?? ""}''');
     SmartDialog.showToast("已复制错误信息");
   }
 

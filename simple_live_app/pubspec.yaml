@@ -87,6 +87,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+dependency_overrides:
+  canvas_danmaku:
+    path: ../third_party/canvas_danmaku
+
 flutter_launcher_icons:
   android: true
   ios: true

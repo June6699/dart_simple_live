@@ -1,17 +1,31 @@
 name: app-build-action
-#推送Tag时触发
 on:
-  push:
-    tags:
-      - "tv_v*"
+  workflow_dispatch:
+    inputs:
+      build_tv:
+        description: "Build Android TV on GitHub Actions"
+        type: boolean
+        default: false
+      ref:
+        description: "Git ref to build, for example master or tv_v1.7.1"
+        required: false
+        default: "master"
+      upload_release:
+        description: "Upload build outputs to the matching GitHub Release when ref is a TV tag"
+        required: false
+        default: false
+        type: boolean
 jobs:
   build-tv:
+    if: ${{ inputs.build_tv == true }}
     runs-on: macos-latest
     permissions:
       contents: write
     steps:
       #签出代码
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       #APK签名设置
       - name: Prepare Android keystore
@@ -81,13 +95,30 @@ jobs:
       - name: Echo version content
         run: echo "${{ fromJson(steps.version.outputs.content).version_desc }}"
 
+      - name: Resolve ref info
+        id: ref_info
+        shell: bash
+        run: |
+          ref_name="${{ inputs.ref }}"
+          if [[ "$ref_name" == refs/tags/* ]]; then
+            ref_name="${ref_name#refs/tags/}"
+          fi
+          is_tag="false"
+          if [[ "$ref_name" == tv_v* ]]; then
+            is_tag="true"
+          fi
+          echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
+          echo "is_tag=$is_tag" >> "$GITHUB_OUTPUT"
+
       #上传至Release
       - name: Upload Release
+        if: ${{ inputs.upload_release && steps.ref_info.outputs.is_tag == 'true' }}
         uses: softprops/action-gh-release@v1
         with:
-          name: "${{ fromJson(steps.version.outputs.content).version }}"
+          tag_name: ${{ steps.ref_info.outputs.ref_name }}
+          name: ${{ steps.ref_info.outputs.ref_name }}
           body: "# Android TV \n${{ fromJson(steps.version.outputs.content).version_desc }}"
-          prerelease: ${{ fromJson(steps.version.outputs.content).prerelease }}
+          prerelease: ${{ fromJson(steps.version.outputs.content).prerelease || contains(steps.ref_info.outputs.ref_name, 'pre') || contains(steps.ref_info.outputs.ref_name, 'next') || contains(steps.ref_info.outputs.ref_name, 'local') }}
           token: ${{ github.token }}
           files: |
             simple_live_tv_app/build/app/outputs/flutter-apk/SimpleLive-TV-x86_64-release.apk

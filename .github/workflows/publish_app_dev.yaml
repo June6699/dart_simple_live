@@ -63,11 +63,11 @@ jobs:
               exit 1
             fi
           else
-            build_android=true
+            build_android=false
             build_ios=true
             build_macos=true
-            build_windows=true
-            build_linux=true
+            build_windows=false
+            build_linux=false
           fi
 
           {

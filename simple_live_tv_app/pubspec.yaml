@@ -54,6 +54,8 @@ dependencies:
 
 dependency_overrides:
   fading_edge_scrollview: ^4.1.1
+  canvas_danmaku:
+    path: ../third_party/canvas_danmaku
   media_kit_libs_android_video: 1.3.7
 
 dev_dependencies:

@@ -24,6 +24,7 @@ class DouyinSite implements LiveSite {
   static const String kDefaultReferer = "https://live.douyin.com";
 
   static const String kDefaultAuthority = "live.douyin.com";
+  static DateTime? _lastRoomDetailRequestAt;
 
   /// 默认 Cookie - 只需要 ttwid 字段即可获取所有画质（包括蓝光）
   /// 经过测试验证，LOGIN_STATUS=1 等其他字段都是可选的
@@ -85,7 +86,8 @@ class DouyinSite implements LiveSite {
           id: '${subItem["partition"]["id_str"]},${subItem["partition"]["type"]}',
           name: asT<String?>(subItem["partition"]["title"]) ?? "",
           parentId: id,
-          pic: _pickPartitionImageUrl(subItem["partition"]) ??
+          pic:
+              _pickPartitionImageUrl(subItem["partition"]) ??
               _pickPartitionImageUrl(item["partition"]),
         );
         subs.add(subCategory);
@@ -209,8 +211,8 @@ class DouyinSite implements LiveSite {
         room["partition_parent"] ??
         (partition is Map
             ? partition["parent_partition"] ??
-                partition["partition_parent"] ??
-                partition["parent"]
+                  partition["partition_parent"] ??
+                  partition["parent"]
             : null) ??
         (partitionRoadMap is List && partitionRoadMap.length > 1
             ? partitionRoadMap.first
@@ -218,22 +220,28 @@ class DouyinSite implements LiveSite {
         room["partitionInfo"];
 
     return {
-      "categoryId": _resolveCategoryValue(
-        partition,
-        const ["id_str", "id", "partition_id", "partition"],
-      ),
-      "categoryName": _resolveCategoryValue(
-        partition,
-        const ["title", "name", "partition_title"],
-      ),
-      "categoryParentId": _resolveCategoryValue(
-        parentPartition,
-        const ["id_str", "id", "partition_id", "partition"],
-      ),
-      "categoryParentName": _resolveCategoryValue(
-        parentPartition,
-        const ["title", "name", "partition_title"],
-      ),
+      "categoryId": _resolveCategoryValue(partition, const [
+        "id_str",
+        "id",
+        "partition_id",
+        "partition",
+      ]),
+      "categoryName": _resolveCategoryValue(partition, const [
+        "title",
+        "name",
+        "partition_title",
+      ]),
+      "categoryParentId": _resolveCategoryValue(parentPartition, const [
+        "id_str",
+        "id",
+        "partition_id",
+        "partition",
+      ]),
+      "categoryParentName": _resolveCategoryValue(parentPartition, const [
+        "title",
+        "name",
+        "partition_title",
+      ]),
       "categoryPic":
           _pickPartitionImageUrl(partition) ??
           _pickPartitionImageUrl(parentPartition),
@@ -413,6 +421,7 @@ class DouyinSite implements LiveSite {
 
   @override
   Future<LiveRoomDetail> getRoomDetail({required String roomId}) async {
+    await _throttleRoomDetailRequest();
     // 有两种roomId，一种是webRid，一种是roomId
     // roomId是一次性的，用户每次重新开播都会生成一个新的roomId
     // roomId一般长度为19位，例如：7376429659866598196
@@ -427,22 +436,38 @@ class DouyinSite implements LiveSite {
     return await getRoomDetailByRoomId(roomId);
   }
 
+  Future<void> _throttleRoomDetailRequest() async {
+    final lastRequestAt = _lastRoomDetailRequestAt;
+    final now = DateTime.now();
+    if (lastRequestAt != null) {
+      final elapsed = now.difference(lastRequestAt);
+      const minInterval = Duration(milliseconds: 1200);
+      if (elapsed < minInterval) {
+        await Future.delayed(minInterval - elapsed);
+      }
+    }
+    _lastRoomDetailRequestAt = DateTime.now();
+  }
+
   /// 通过roomId获取直播间信息
   /// - [roomId] 直播间ID
   /// - 返回直播间信息
   Future<LiveRoomDetail> getRoomDetailByRoomId(String roomId) async {
     // 读取房间信息
     var roomData = await _getRoomDataByRoomId(roomId);
+    final room = roomData["data"]?["room"];
+    if (room is! Map) {
+      throw CoreError("抖音直播间数据为空，可能是房间不存在、未开播或被风控限制");
+    }
 
     // 通过房间信息获取WebRid
-    var webRid = roomData["data"]["room"]["owner"]["web_rid"].toString();
+    var webRid = room["owner"]["web_rid"].toString();
 
     // 读取用户唯一ID，用于弹幕连接
     // 似乎这个参数不是必须的，先随机生成一个
     //var userUniqueId = await _getUserUniqueId(webRid);
     var userUniqueId = generateRandomNumber(12).toString();
 
-    var room = roomData["data"]["room"];
     var owner = room["owner"];
     final categoryInfo = _resolveDouyinCategoryInfo(room);
 
@@ -496,6 +521,9 @@ class DouyinSite implements LiveSite {
       return result;
     } catch (e) {
       CoreLog.error(e);
+      if (e is CoreError && e.statusCode == 444) {
+        rethrow;
+      }
     }
     return await _getRoomDetailByWebRidHtml(webRid);
   }
@@ -624,6 +652,9 @@ class DouyinSite implements LiveSite {
       "https://live.douyin.com/$webRid",
       header: headers,
     );
+    if (headResp.statusCode == 444) {
+      throw CoreError("", statusCode: 444);
+    }
     var dyCookie = "";
     headResp.headers["set-cookie"]?.forEach((element) {
       var cookie = element.split(";")[0];
@@ -654,19 +685,32 @@ class DouyinSite implements LiveSite {
         "User-Agent": kDefaultUserAgent,
       },
     );
+    if (result.trim().isEmpty) {
+      throw CoreError("抖音直播间页面返回为空，请稍后再试");
+    }
+    if (!result.contains(r'\"state\"')) {
+      throw CoreError("抖音直播间页面数据不可用，可能是访问受限或页面结构已变化");
+    }
 
     var renderData =
         RegExp(
           r'\{\\"state\\":\{\\"appStore.*?\]\\n',
         ).firstMatch(result)?.group(0) ??
         "";
+    if (renderData.isEmpty) {
+      throw CoreError("抖音直播间页面数据解析失败，请稍后再试");
+    }
     var str = renderData
         .trim()
         .replaceAll('\\"', '"')
         .replaceAll(r"\\", r"\")
         .replaceAll(']\\n', "");
-    var renderDataJson = json.decode(str);
-    return renderDataJson["state"];
+    final renderDataJson = json.decode(str);
+    final state = renderDataJson["state"];
+    if (state is! Map) {
+      throw CoreError("抖音直播间页面状态数据异常");
+    }
+    return state;
   }
 
   /// 通过webRid获取直播间Web信息
@@ -708,7 +752,16 @@ class DouyinSite implements LiveSite {
       throw Exception("抖音接口返回格式异常");
     }
 
-    return result["data"];
+    final data = result["data"];
+    if (data is! Map) {
+      throw CoreError("抖音直播间数据为空，请稍后再试");
+    }
+    final rooms = data["data"];
+    if (rooms is! List || rooms.isEmpty) {
+      throw CoreError("抖音直播间数据为空，可能是房间不存在、未开播或被风控限制");
+    }
+
+    return data;
   }
 
   /// 通过roomId获取直播间信息
@@ -1021,7 +1074,10 @@ class DouyinSite implements LiveSite {
     );
     final items = (result["data"]?["ranks"] as List?) ?? const [];
     return items
-        .map((item) {
+        .asMap()
+        .entries
+        .map((entry) {
+          final item = entry.value;
           final user = item["user"] ?? {};
           final payGrade = user["pay_grade"] ?? {};
           final fansData = user["fans_club"]?["data"] ?? {};
@@ -1043,7 +1099,7 @@ class DouyinSite implements LiveSite {
           }
 
           return LiveContributionRankItem(
-            rank: int.tryParse(item["rank"].toString()) ?? 0,
+            rank: _resolveDouyinRank(item, entry.key),
             userName: user["nickname"]?.toString() ?? "",
             avatar: _firstImageUrl(user["avatar_thumb"]),
             scoreText: scoreText,
@@ -1060,6 +1116,17 @@ class DouyinSite implements LiveSite {
         })
         .where((item) => item.userName.trim().isNotEmpty)
         .toList();
+  }
+
+  int _resolveDouyinRank(Map item, int index) {
+    final parsed = int.tryParse(item["rank"]?.toString() ?? "");
+    if (parsed == null || parsed <= 0) {
+      return index + 1;
+    }
+    if (parsed == 1 && index > 0) {
+      return index + 1;
+    }
+    return parsed;
   }
 
   String _firstImageUrl(dynamic data) {

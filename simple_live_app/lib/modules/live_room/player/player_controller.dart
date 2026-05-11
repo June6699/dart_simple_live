@@ -438,12 +438,10 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
         await windowManager.restore();
         await _waitForWindowMaximizedState(false);
         await _waitForWindowBoundsToChange(maximizedBounds);
-        await _refreshWindowsWindowBounds();
         await Future.delayed(const Duration(milliseconds: 120));
       }
       await windowManager.setFullScreen(true);
       await Future.delayed(const Duration(milliseconds: 16));
-      await _refreshWindowsWindowBounds();
     }
     //danmakuController?.clear();
   }
@@ -1117,6 +1115,7 @@ class PlayerController extends BaseController
   @override
   void onClose() async {
     Log.w("播放器关闭");
+    await player.stop();
     if (smallWindowState.value) {
       await exitSmallWindow();
     }

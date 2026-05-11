@@ -122,7 +122,7 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
         AppStyle.vGap12,
         Obx(
           () => Text(
-            "已添加 ${controller.settingsController.shieldList.length} 个关键词（点击即可移除）",
+            "已添加 ${controller.settingsController.shieldList.length} 个关键词（点击编辑，点叉移除）",
             style: Get.textTheme.titleSmall,
           ),
         ),
@@ -130,6 +130,12 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
         Obx(
           () => _buildShieldChips(
             items: controller.settingsController.shieldList,
+            onEdit: (item) => _showEditValueDialog(
+              title: "编辑关键词",
+              initialValue: item,
+              hintText: "请输入关键词或正则表达式",
+              onConfirm: (value) => controller.edit(item, value),
+            ),
             onRemove: controller.remove,
             emptyText: "当前还没有过滤关键词",
           ),
@@ -218,7 +224,7 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "当前分组已屏蔽 $currentCount 个用户（点击即可移除）",
+                "当前分组已屏蔽 $currentCount 个用户（点击编辑，点叉移除）",
                 style: Get.textTheme.titleSmall,
               ),
               if (!isGlobal) ...[
@@ -237,6 +243,12 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
         Obx(
           () => _buildShieldChips(
             items: controller.currentUserShieldValues,
+            onEdit: (item) => _showEditValueDialog(
+              title: "编辑用户名",
+              initialValue: item,
+              hintText: "请输入要屏蔽的用户名",
+              onConfirm: (value) => controller.editUser(item, value),
+            ),
             onRemove: (item) => controller.removeUser(item),
             emptyText: "当前分组还没有屏蔽用户名",
           ),
@@ -394,6 +406,7 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
 
   Widget _buildShieldChips({
     required Iterable<String> items,
+    required ValueChanged<String> onEdit,
     required ValueChanged<String> onRemove,
     required String emptyText,
   }) {
@@ -409,7 +422,7 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
           .map(
             (item) => InkWell(
               borderRadius: AppStyle.radius24,
-              onTap: () => onRemove(item),
+              onTap: () => onEdit(item),
               child: Container(
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey),
@@ -419,14 +432,69 @@ class DanmuShieldPage extends GetView<DanmuShieldController> {
                   top: 4,
                   bottom: 4,
                 ),
-                child: Text(
-                  item,
-                  style: Get.textTheme.bodyMedium,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: Text(
+                        item,
+                        style: Get.textTheme.bodyMedium,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    AppStyle.hGap4,
+                    GestureDetector(
+                      onTap: () => onRemove(item),
+                      child: const Icon(Icons.close, size: 16),
+                    ),
+                  ],
                 ),
               ),
             ),
           )
           .toList(),
+    );
+  }
+
+  void _showEditValueDialog({
+    required String title,
+    required String initialValue,
+    required String hintText,
+    required ValueChanged<String> onConfirm,
+  }) {
+    final textController = TextEditingController(text: initialValue);
+    Get.dialog(
+      AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            hintText: hintText,
+          ),
+          onSubmitted: (_) {
+            final value = textController.text;
+            Get.back();
+            onConfirm(value);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: Get.back,
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = textController.text;
+              Get.back();
+              onConfirm(value);
+            },
+            child: const Text("保存"),
+          ),
+        ],
+      ),
     );
   }
 

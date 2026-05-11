@@ -76,6 +76,12 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
       updateDanmuOption(
         previewController.option.copyWith(
           area: resolvedArea,
+          lineHeight: controller.resolveDanmuLineHeight(
+            viewportHeight: effectiveViewportHeight,
+            area: area ?? controller.danmuArea.value,
+            fontSize: resolvedFontSize,
+            lineCount: controller.danmuLineCount.value,
+          ),
           fontSize: resolvedFontSize,
           fontWeight: fontWeight ?? controller.danmuFontWeight.value,
           duration: duration ?? controller.danmuSpeed.value.toInt(),

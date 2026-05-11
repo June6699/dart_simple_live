@@ -78,9 +78,10 @@ jobs:
         if: ${{ steps.build_macos.outcome == 'success' && inputs.upload_release && steps.ref_info.outputs.is_tag == 'true' }}
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.ref_info.outputs.ref_name }}
           name: ${{ steps.ref_info.outputs.ref_name }}
           generate_release_notes: true
-          prerelease: ${{ contains(steps.ref_info.outputs.ref_name, 'beta') || contains(steps.ref_info.outputs.ref_name, 'alpha') }}
+          prerelease: ${{ contains(steps.ref_info.outputs.ref_name, 'beta') || contains(steps.ref_info.outputs.ref_name, 'alpha') || contains(steps.ref_info.outputs.ref_name, 'pre') || contains(steps.ref_info.outputs.ref_name, 'next') || contains(steps.ref_info.outputs.ref_name, 'local') }}
           token: ${{ github.token }}
           fail_on_unmatched_files: false
           files: |

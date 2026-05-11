@@ -44,10 +44,9 @@ packages:
   canvas_danmaku:
     dependency: "direct main"
     description:
-      name: canvas_danmaku
-      sha256: "98fd90f257ffe93bd6a0bd857d92f40172767fc77ffb48b2379ac692e62150eb"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
+      path: "../third_party/canvas_danmaku"
+      relative: true
+    source: path
     version: "0.2.7"
   characters:
     dependency: transitive

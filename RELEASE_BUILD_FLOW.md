@@ -4,14 +4,13 @@
 
 目标很明确：
 
-- 本地先验证 Windows 和 Android
-- 本地同步验证 Android TV
-- Linux 优先用 GitHub Actions 正式构建
+- 本地先验证并构建 Windows、Android、Android TV、Linux
+- GitHub Actions 只在需要时手动勾选平台补构建，日常不再让 tag push 自动跑 Windows/Android/Linux/TV
 - 如果确实需要本地重新打 Linux 包，只把 WSL 当 Linux 构建环境，不要求在 WSL 里运行图形界面
 - 所有最终成品统一归档到 `C:\softwares\dart_simple_live\release`
 - 日常开发以私有 `own` 仓库为准，公开 `fork` 仓库只做阶段性对外发布
 
-`macOS` 当前只保留手动入口，不参与正式自动发布判断。
+`iOS/macOS` 当前只保留手动入口，适合在本地无法构建时交给 GitHub Actions。
 
 ## 1. 适用范围
 
@@ -127,17 +126,26 @@ git remote -v
   - 不再强制一次把 5 个平台全部跑完
 
 - [publish_app_release.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release.yml)
-  - Android 自动发布
-  - 触发方式：推送 `v*` tag
+  - Android 手动发布
+  - 触发方式：`workflow_dispatch`
+  - 勾选 `build_android` 后才构建
+  - 支持 `ref` 指定分支或 tag
+  - `upload_release` 仅在 `ref` 是 `v*` tag 时上传到对应 release
 - [publish_app_release_windows.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release_windows.yml)
-  - Windows 自动发布
-  - 触发方式：推送 `v*` tag
+  - Windows 手动发布
+  - 触发方式：`workflow_dispatch`
+  - 勾选 `build_windows` 后才构建
 - [publish_app_release_linux.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release_linux.yml)
-  - Linux 自动发布
-  - 触发方式：推送 `v*` tag
+  - Linux 手动发布
+  - 触发方式：`workflow_dispatch`
+  - 勾选 `build_linux` 后才构建
   - 当前使用 `ubuntu-22.04`
   - 当前 GitHub Actions Flutter 版本：`3.41.x`
   - 当前 Linux 打包方式：`flutter_distributor package --platform linux --targets deb,zip --skip-clean`
+- [publish_app_release_ios_manual.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release_ios_manual.yml)
+  - iOS unsigned IPA 手动构建入口
+  - 触发方式：`workflow_dispatch`
+  - 默认可勾选 `build_ios`
 - [publish_app_release_macos_manual.yml](/C:/softwares/dart_simple_live/.github/workflows/publish_app_release_macos_manual.yml)
   - macOS 手动构建入口
   - 触发方式：`workflow_dispatch`
@@ -147,8 +155,10 @@ git remote -v
   - 触发方式：推送 `dev_tv_v*` tag 或手动 `workflow_dispatch`
   - 产物上传到 GitHub Actions Artifacts
 - [publish_tv_app_release.yaml](/C:/softwares/dart_simple_live/.github/workflows/publish_tv_app_release.yaml)
-  - Android TV 正式 release
-  - 触发方式：推送 `tv_v*` tag
+  - Android TV 手动 release
+  - 触发方式：`workflow_dispatch`
+  - 勾选 `build_tv` 后才构建
+  - `upload_release` 仅在 `ref` 是 `tv_v*` tag 时上传到对应 release
   - 依赖 GitHub Secrets：`TV_KEYSTORE_BASE64`、`TV_STORE_PASSWORD`、`TV_KEY_PASSWORD`、`TV_KEY_ALIAS`
   - 使用 `flutter build apk --release --split-per-abi`
   - 会上传 `armeabi-v7a / arm64-v8a / x86_64` 三个 APK 到 Artifacts 和 GitHub Release
@@ -156,11 +166,12 @@ git remote -v
 ## 5. 发布前原则
 
 1. 尽量不要用脏工作区直接打“最终正式包”。
-2. 最稳的正式发版方式仍然是：
+2. 当前推荐的预发布方式是：
    - 本地先做功能验证
-   - push 代码
-   - 打 tag
-   - 以 GitHub Actions 产物为正式 release
+   - 本地构建 Windows / Android / Android TV / Linux
+   - push 代码并打 tag
+   - 用本地产物创建 GitHub pre-release
+   - 只有 iOS/macOS 或明确需要远端复核的平台再手动勾选 GitHub Actions
 3. 四个平台要独立看待：
    - Android 只看 Android
    - Android TV 只看 Android TV
@@ -550,7 +561,7 @@ git commit -m "Release v1.12.0"
 git push origin master
 ```
 
-### 10.2 打 tag 触发 3 条自动工作流
+### 10.2 打 tag 并按需触发工作流
 
 ```powershell
 cd C:\softwares\dart_simple_live
@@ -560,11 +571,13 @@ git push origin v1.12.0 --force
 
 会触发：
 
-- Android 工作流
-- Windows 工作流
-- Linux 工作流
+- 当前 release 工作流不会因为 tag push 自动构建 Android / Windows / Linux / TV
+- 需要远端补构建时，进入 GitHub Actions 页面，手动运行对应 workflow
+- Android / Windows / Linux / TV 都有布尔勾选项，默认不构建
+- `ref` 填 tag 名，`upload_release` 勾选后会上传到该 tag 对应 release
+- `dev_v*` tag 仍可触发开发构建，但默认只跑 iOS/macOS，节省 Actions 时间
 
-不会自动触发 macOS。
+macOS/iOS 仍保留手动入口；macOS 当前不作为本地预发布阻塞项。
 
 ### 10.3 查看工作流状态
 
@@ -573,7 +586,7 @@ $env:PATH='C:\softwares\GitHubCli;C:\softwares\Git\cmd;'+$env:PATH
 gh run list --repo June6699/dart_simple_live --limit 20
 ```
 
-建议分别确认这 3 条工作流成功：
+如手动触发了远端构建，建议分别确认这些工作流成功：
 
 - `app-build-android-release`
 - `app-build-windows-release`

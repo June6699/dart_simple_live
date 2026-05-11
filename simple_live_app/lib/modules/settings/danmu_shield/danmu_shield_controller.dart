@@ -52,6 +52,16 @@ class DanmuShieldController extends BaseController {
     settingsController.removeShieldList(item);
   }
 
+  Future<void> edit(String oldValue, String newValue) async {
+    final value = newValue.trim();
+    if (value.isEmpty) {
+      SmartDialog.showToast("请输入关键词");
+      return;
+    }
+    final success = await settingsController.updateShieldList(oldValue, value);
+    SmartDialog.showToast(success ? "已更新关键词" : "更新关键词失败");
+  }
+
   void addUser() {
     final value = userTextEditingController.text.trim();
     if (value.isEmpty) {
@@ -68,6 +78,24 @@ class DanmuShieldController extends BaseController {
       item,
       siteId: siteId ?? currentUserSiteId,
     );
+  }
+
+  Future<void> editUser(
+    String oldValue,
+    String newValue, {
+    String? siteId,
+  }) async {
+    final value = newValue.trim();
+    if (value.isEmpty) {
+      SmartDialog.showToast("请输入用户名");
+      return;
+    }
+    final success = await settingsController.updateUserShieldList(
+      oldValue,
+      value,
+      siteId: siteId ?? currentUserSiteId,
+    );
+    SmartDialog.showToast(success ? "已更新用户名" : "更新用户名失败");
   }
 
   Future<void> clearKeywords() async {
@@ -136,7 +164,8 @@ class DanmuShieldController extends BaseController {
     }
 
     if (oldValue != newValue &&
-        settingsController.shieldPresetList.any((item) => item.name == newValue)) {
+        settingsController.shieldPresetList
+            .any((item) => item.name == newValue)) {
       final confirm = await Utils.showAlertDialog(
         "已经存在同名预设，继续后会用当前关键词和用户分组覆盖它。",
         title: "确认覆盖同名预设",

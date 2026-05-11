@@ -99,7 +99,7 @@ class AppSettingsController extends GetxController {
     autoFullScreen.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoFullScreen, false);
     playershowSuperChat.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kPlayerShowSuperChat, true);
+        .getValue(LocalStorageService.kPlayerShowSuperChat, false);
 
     _loadDanmuDelaySettings();
     _loadUserRemarks();
@@ -428,7 +428,14 @@ class AppSettingsController extends GetxController {
     );
     final desiredLines = (lineCount ?? danmuLineCount.value).clamp(1, maxLines);
     final itemHeight = estimateDanmuTextHeight(fontSize: fontSize);
-    final targetArea = (desiredLines * itemHeight) / viewportHeight;
+    final lineHeight = resolveDanmuLineHeight(
+      viewportHeight: viewportHeight,
+      area: safeArea,
+      fontSize: fontSize,
+      lineCount: desiredLines,
+    );
+    final targetArea =
+        (desiredLines * itemHeight * lineHeight) / viewportHeight;
     return targetArea.clamp(0.02, safeArea);
   }
 
@@ -459,13 +466,20 @@ class AppSettingsController extends GetxController {
       return 1;
     }
     final itemHeight = estimateDanmuTextHeight(fontSize: fontSize);
+    final lineHeight = resolveDanmuLineHeight(
+      viewportHeight: viewportHeight,
+      area: area,
+      fontSize: fontSize,
+      lineCount: lineCount,
+    );
     final effectiveArea = resolveDanmuEffectiveArea(
       viewportHeight: viewportHeight,
       area: area,
       fontSize: fontSize,
       lineCount: lineCount,
     );
-    final rows = ((viewportHeight / itemHeight) * effectiveArea).floor();
+    final rows =
+        ((viewportHeight * effectiveArea) / (itemHeight * lineHeight)).floor();
     return rows.clamp(1, 40);
   }
 
@@ -581,7 +595,7 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kAutoFullScreen, e);
   }
 
-  var playershowSuperChat = true.obs;
+  var playershowSuperChat = false.obs;
   void setPlayerShowSuperChat(bool e) {
     playershowSuperChat.value = e;
     LocalStorageService.instance
@@ -668,7 +682,8 @@ class AppSettingsController extends GetxController {
     if (userName.isEmpty) {
       return null;
     }
-    if (siteId == kGlobalUserShieldSiteId || Sites.allSites.containsKey(siteId)) {
+    if (siteId == kGlobalUserShieldSiteId ||
+        Sites.allSites.containsKey(siteId)) {
       return MapEntry(_normalizeShieldSiteId(siteId), userName);
     }
     return MapEntry(kGlobalUserShieldSiteId, value);
@@ -877,6 +892,20 @@ class AppSettingsController extends GetxController {
     LocalStorageService.instance.shieldBox.delete(storageValue);
   }
 
+  Future<bool> updateShieldList(String oldValue, String newValue) async {
+    final oldText = oldValue.trim();
+    final newText = newValue.trim();
+    if (oldText.isEmpty || newText.isEmpty) {
+      return false;
+    }
+    if (oldText == newText) {
+      return true;
+    }
+    removeShieldList(oldText);
+    addShieldList(newText);
+    return true;
+  }
+
   void addUserShieldList(String e, {String? siteId}) {
     final value = e.trim();
     if (value.isEmpty) {
@@ -911,6 +940,24 @@ class AppSettingsController extends GetxController {
       LocalStorageService.instance.shieldBox
           .delete("$_userShieldPrefix$kGlobalUserShieldSiteId:$value");
     }
+  }
+
+  Future<bool> updateUserShieldList(
+    String oldValue,
+    String newValue, {
+    String? siteId,
+  }) async {
+    final oldText = oldValue.trim();
+    final newText = newValue.trim();
+    if (oldText.isEmpty || newText.isEmpty) {
+      return false;
+    }
+    if (oldText == newText) {
+      return true;
+    }
+    removeUserShieldList(oldText, siteId: siteId);
+    addUserShieldList(newText, siteId: siteId);
+    return true;
   }
 
   bool isUserShielded(String userName, {String? siteId}) {
@@ -1163,8 +1210,8 @@ class AppSettingsController extends GetxController {
       if (rawPreset is! Map) {
         return null;
       }
-      final name = (rawPreset["name"]?.toString().trim() ?? fallbackName ?? "")
-          .trim();
+      final name =
+          (rawPreset["name"]?.toString().trim() ?? fallbackName ?? "").trim();
       final keywords = (rawPreset["keywords"] as List? ?? const [])
           .map((e) => e.toString().trim())
           .where((e) => e.isNotEmpty)
