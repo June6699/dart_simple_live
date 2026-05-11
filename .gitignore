@@ -22,13 +22,9 @@ tmp_typora_skill_test_v5/
 *.DS_Store
 
 # doc
-RELEASE_BUILD_FLOW.md
-PUSH_AND_RELEASE_QUICK.md
-UPDATE.md
-!Update.md
-UPDATE-2026.5.4-1.12.0.md
-安卓TV模拟说明文档.md
-issue问题收集.md
+*.md
+!README.md
+!**/README.md
 
 # others
 tmp_*.png
