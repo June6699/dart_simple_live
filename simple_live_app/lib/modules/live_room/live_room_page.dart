@@ -35,6 +35,14 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     return viewPadding > padding ? viewPadding : padding;
   }
 
+  double _bottomActionInset(BuildContext context) {
+    final safeInset = _bottomSafeInset(context);
+    if (!Platform.isIOS) {
+      return safeInset;
+    }
+    return safeInset.clamp(0.0, 16.0).toDouble();
+  }
+
   Widget _buildRoomTitleText() {
     return Obx(
       () => Text(
@@ -214,8 +222,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   Widget buildPageUI() {
     return OrientationBuilder(
       builder: (context, orientation) {
-        final hasLandscapeActionPanel =
-            orientation == Orientation.landscape;
+        final hasLandscapeActionPanel = orientation == Orientation.landscape;
         return Scaffold(
           appBar: AppBar(
             automaticallyImplyLeading: false,
@@ -486,7 +493,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           ),
         ),
       ),
-      padding: EdgeInsets.only(bottom: _bottomSafeInset(context)),
+      padding: EdgeInsets.only(bottom: _bottomActionInset(context)),
       child: Row(
         children: [
           Expanded(

@@ -267,7 +267,7 @@ jobs:
   build-linux:
     needs: resolve-targets
     if: ${{ needs.resolve-targets.outputs.build_linux == 'true' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
