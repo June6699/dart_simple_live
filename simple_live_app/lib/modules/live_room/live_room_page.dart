@@ -284,7 +284,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             ),
           ),
           padding: AppStyle.edgeInsetsV4.copyWith(
-            bottom: _bottomSafeInset(context) + 4,
+            bottom: _bottomActionInset(context) + 4,
           ),
           child: Row(
             children: [

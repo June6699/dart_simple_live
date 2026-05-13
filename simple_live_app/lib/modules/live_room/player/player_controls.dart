@@ -34,11 +34,20 @@ Widget playerControls(
   });
 }
 
+EdgeInsets _fullScreenControlPadding(BuildContext context) {
+  final mediaQuery = MediaQuery.of(context);
+  final padding = mediaQuery.padding;
+  if (Platform.isIOS && mediaQuery.orientation == Orientation.landscape) {
+    return padding.copyWith(top: 0, bottom: 0);
+  }
+  return padding;
+}
+
 Widget buildFullControls(
   VideoState videoState,
   LiveRoomController controller,
 ) {
-  final padding = MediaQuery.of(videoState.context).padding;
+  final padding = _fullScreenControlPadding(videoState.context);
   final volumeButtonKey = GlobalKey();
   final controls = _buildPlayerMouseRegion(
     videoState: videoState,
@@ -592,7 +601,9 @@ Widget _buildGestureTip(LiveRoomController controller) {
 }
 
 Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
-  var padding = MediaQuery.of(videoState.context).padding;
+  var padding = controller.fullScreenState.value
+      ? _fullScreenControlPadding(videoState.context)
+      : MediaQuery.of(videoState.context).padding;
   return Positioned.fill(
     top: padding.top,
     bottom: padding.bottom,
