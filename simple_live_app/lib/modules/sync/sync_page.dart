@@ -50,6 +50,16 @@ class SyncPage extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
+                  title: const Text("配置包导入导出"),
+                  leading: const Icon(Remix.file_transfer_line),
+                  subtitle: const Text("跨平台迁移设置、关注、历史和屏蔽数据"),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Get.toNamed(RoutePath.kProfileBackup);
+                  },
+                ),
+                AppStyle.divider,
+                ListTile(
                   title: const Text("创建房间"),
                   leading: const Icon(Remix.home_wifi_line),
                   subtitle: const Text("其他设备可以通过房间号加入"),

@@ -15,6 +15,7 @@ import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/profile_backup_service.dart';
 import 'package:udp/udp.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -196,6 +197,7 @@ class SyncService extends GetxService {
       serverRouter.post('/sync/tag', _syncFollowUserTagRequest);
       serverRouter.post('/sync/history', _syncHistoryReuqest);
       serverRouter.post('/sync/blocked_word', _syncBlockedWordReuqest);
+      serverRouter.post('/sync/profile', _syncProfileReuqest);
       serverRouter.post('/sync/account/bilibili', _syncBiliAccountReuqest);
 
       var server = await shelf_io.serve(
@@ -361,6 +363,28 @@ class SyncService extends GetxService {
       return toJsonResponse({
         'status': true,
         'message': 'success',
+      });
+    } catch (e) {
+      return toJsonResponse({
+        'status': false,
+        'message': e.toString(),
+      });
+    }
+  }
+
+  Future<shelf.Response> _syncProfileReuqest(shelf.Request request) async {
+    try {
+      final overlay =
+          int.parse(request.requestedUri.queryParameters['overlay'] ?? '0');
+      final body = await request.readAsString();
+      final summary = await ProfileBackupService.instance.importProfileJson(
+        body,
+        overwrite: overlay == 1,
+      );
+      SmartDialog.showToast('已同步配置包');
+      return toJsonResponse({
+        'status': true,
+        'message': summary.message,
       });
     } catch (e) {
       return toJsonResponse({

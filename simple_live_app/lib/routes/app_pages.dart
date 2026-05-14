@@ -7,6 +7,8 @@ import 'package:simple_live_app/modules/indexed/indexed_controller.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/live_room/live_room_page.dart';
 import 'package:simple_live_app/modules/settings/follow_settings_page.dart';
+import 'package:simple_live_app/modules/sync/profile_backup/profile_backup_controller.dart';
+import 'package:simple_live_app/modules/sync/profile_backup/profile_backup_page.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/webdav/remote_sync_webdav_config_page.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/webdav/remote_sync_webdav_controller.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/webdav/remote_sync_webdav_page.dart';
@@ -101,8 +103,7 @@ class AppPages {
           return CategoryDetailController(
             site: args["site"],
             subCategory: args["category"],
-            onRoomSelected:
-                args["onRoomSelected"] as RoomSelectionCallback?,
+            onRoomSelected: args["onRoomSelected"] as RoomSelectionCallback?,
             excludedRoomId: args["excludedRoomId"] as String?,
           );
         }
@@ -195,6 +196,13 @@ class AppPages {
       name: RoutePath.kSync,
       page: () => const SyncPage(),
     ),
+    GetPage(
+      name: RoutePath.kProfileBackup,
+      page: () => const ProfileBackupPage(),
+      bindings: [
+        BindingsBuilder.put(() => ProfileBackupController()),
+      ],
+    ),
     // 本地同步
     GetPage(
       name: RoutePath.kLocalSync,
@@ -244,7 +252,7 @@ class AppPages {
       page: () => const RemoteSyncWebDAVPage(),
       bindings: [
         BindingsBuilder.put(
-              () => RemoteSyncWebDAVController(),
+          () => RemoteSyncWebDAVController(),
         ),
       ],
     ),

@@ -63,6 +63,9 @@ class RoutePath {
   /// 数据同步
   static const kSync = "/sync";
 
+  /// 配置包导入导出
+  static const kProfileBackup = "/sync/profile_backup";
+
   /// 扫描
   static const kSyncScan = "/sync/scan";
 

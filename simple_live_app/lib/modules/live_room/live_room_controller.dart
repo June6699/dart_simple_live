@@ -24,6 +24,7 @@ import 'package:simple_live_app/routes/app_navigation.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/services/live_subtitle_service.dart';
 import 'package:simple_live_app/widgets/filter_button.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
@@ -119,6 +120,9 @@ class LiveRoomController extends PlayerController
 
   /// 应用是否处于后台
   var isBackground = false;
+
+  bool get _allowBackgroundPlayback =>
+      AppSettingsController.instance.allowBackgroundPlayback.value;
 
   /// 直播间加载是否失败
   var loadError = false.obs;
@@ -560,7 +564,9 @@ class LiveRoomController extends PlayerController
     );
 
     void emit() {
-      if (!showDanmakuState.value || !liveStatus.value || isBackground) {
+      if (!showDanmakuState.value ||
+          !liveStatus.value ||
+          (isBackground && !_allowBackgroundPlayback)) {
         return;
       }
       addDanmaku([
@@ -805,6 +811,7 @@ class LiveRoomController extends PlayerController
     );
     await player.stop();
     await liveDanmaku.stop();
+    LiveSubtitleService.instance.stop();
     super.onClose();
   }
 
@@ -847,7 +854,7 @@ class LiveRoomController extends PlayerController
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => chatScrollToBottom(),
       );
-      if (!liveStatus.value || isBackground) {
+      if (!liveStatus.value || (isBackground && !_allowBackgroundPlayback)) {
         return;
       }
       _scheduleOverlayDanmaku(msg);
@@ -1130,6 +1137,7 @@ class LiveRoomController extends PlayerController
           httpHeaders: playHeaders,
         ),
       );
+      unawaited(LiveSubtitleService.instance.syncPreviewFromSettings());
       Log.d("播放链接\n$finalUrl");
     } finally {
       _playerReopening = false;
@@ -2170,33 +2178,35 @@ ${errorStackTrace ?? ""}''');
         state == AppLifecycleState.hidden ||
         (state == AppLifecycleState.inactive &&
             shouldTreatInactiveAsBackground)) {
-      Log.d("杩涘叆鍚庡彴:$state");
-      danmakuController?.clear();
-      _cancelPendingDanmakuTimers();
+      Log.d("进入后台:$state");
       isBackground = true;
       _backgroundedAt = DateTime.now();
       _positionBeforeBackground = _lastKnownPlayerPosition;
-      unawaited(
-        AppSettingsController.instance.saveLastLiveRoom(
-          siteId: site.id,
-          roomId: roomId,
-          resumePending: true,
-        ),
-      );
+      if (!_allowBackgroundPlayback) {
+        danmakuController?.clear();
+        _cancelPendingDanmakuTimers();
+        unawaited(
+          AppSettingsController.instance.saveLastLiveRoom(
+            siteId: site.id,
+            roomId: roomId,
+            resumePending: true,
+          ),
+        );
+      }
     } else if (state == AppLifecycleState.resumed) {
-      Log.d("杩斿洖鍓嶅彴");
+      Log.d("返回前台");
       isBackground = false;
       unawaited(
         AppSettingsController.instance.setLastLiveRoomResumePending(false),
       );
-      _refreshDanmakuOverlay("鏉╂柨娲栭崜宥呭酱");
+      _refreshDanmakuOverlay("返回前台");
       var backgroundedAt = _backgroundedAt;
       var positionBeforeBackground = _positionBeforeBackground;
       _backgroundedAt = null;
       _positionBeforeBackground = null;
       unawaited(
         _recoverPlaybackAfterForeground(
-          "杩斿洖鍓嶅彴",
+          "返回前台",
           since: backgroundedAt,
           previousPosition: positionBeforeBackground,
         ),

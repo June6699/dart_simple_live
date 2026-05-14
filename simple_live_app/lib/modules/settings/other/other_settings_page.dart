@@ -32,14 +32,14 @@ class OtherSettingsPage extends GetView<OtherSettingsController> {
                   Expanded(
                     child: TextButton.icon(
                       onPressed: controller.exportConfig,
-                      label: const Text("导出配置"),
+                      label: const Text("导出配置包"),
                       icon: const Icon(Remix.export_line),
                     ),
                   ),
                   Expanded(
                     child: TextButton.icon(
                       onPressed: controller.importConfig,
-                      label: const Text("导入配置"),
+                      label: const Text("导入配置包"),
                       icon: const Icon(Remix.import_line),
                     ),
                   ),

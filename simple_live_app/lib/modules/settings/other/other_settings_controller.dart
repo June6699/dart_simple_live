@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -11,7 +12,9 @@ import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:path/path.dart' as p;
 import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/services/live_subtitle_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_app/services/profile_backup_service.dart';
 
 class OtherSettingsController extends BaseController {
   RxList<LogFileModel> logFiles = <LogFileModel>[].obs;
@@ -155,17 +158,8 @@ class OtherSettingsController extends BaseController {
 
   void exportConfig() async {
     try {
-      // 组装数据
-      var data = {
-        "type": "simple_live",
-        "platform": Platform.operatingSystem,
-        "version": 1,
-        "time": DateTime.now().millisecondsSinceEpoch,
-        "config": LocalStorageService.instance.settingsBox.toMap(),
-        "shield": LocalStorageService.instance.shieldBox.toMap(),
-      };
-
-      var bytes = Uint8List.fromList(utf8.encode(jsonEncode(data)));
+      var data = ProfileBackupService.instance.exportProfileJson();
+      var bytes = Uint8List.fromList(utf8.encode(data));
 
       // FilePicker 直接写入
       var inlineSave = Platform.isAndroid || Platform.isIOS || kIsWeb;
@@ -173,7 +167,7 @@ class OtherSettingsController extends BaseController {
       var path = await FilePicker.platform.saveFile(
         allowedExtensions: ['json'],
         type: FileType.custom,
-        fileName: "simple_live_config.json",
+        fileName: "simple_live_profile.json",
         bytes: inlineSave ? bytes : null,
       );
 
@@ -204,26 +198,49 @@ class OtherSettingsController extends BaseController {
         return;
       }
       var filePath = file.files.single.path!;
-      var data = jsonDecode(await File(filePath).readAsString());
-      if (data["type"] != "simple_live") {
-        SmartDialog.showToast("不支持的配置文件");
+      var content = await File(filePath).readAsString();
+      var data = jsonDecode(content);
+      if (data is Map && data["schema"] == ProfileBackupService.schema) {
+        var overwrite = await Utils.showAlertDialog(
+          "是否覆盖本地数据？选择“不覆盖”会合并导入，保留本机已有数据。",
+          title: "导入配置包",
+          confirm: "覆盖",
+          cancel: "不覆盖",
+        );
+        final summary = await ProfileBackupService.instance.importProfileJson(
+          content,
+          overwrite: overwrite,
+        );
+        SmartDialog.showToast("导入成功：${summary.message}");
         return;
       }
-      // 检查platform
-      if (data["platform"] != Platform.operatingSystem &&
-          !await Utils.showAlertDialog("导入配置文件平台不匹配,是否继续导入?", title: "平台不匹配")) {
-        return;
-      }
-      LocalStorageService.instance.settingsBox.clear();
-      LocalStorageService.instance.shieldBox.clear();
-      LocalStorageService.instance.settingsBox.putAll(data["config"]);
-      LocalStorageService.instance.shieldBox
-          .putAll(data["shield"].cast<String, String>());
-      SmartDialog.showToast("导入成功,重启生效");
+      await _importLegacyConfig(data);
     } catch (e) {
       Log.logPrint(e);
       SmartDialog.showToast("导入失败:$e");
     }
+  }
+
+  Future<void> _importLegacyConfig(dynamic data) async {
+    if (data is! Map || data["type"] != "simple_live") {
+      SmartDialog.showToast("不支持的配置文件");
+      return;
+    }
+    if (data["platform"] != Platform.operatingSystem &&
+        !await Utils.showAlertDialog(
+          "导入配置文件平台不匹配,是否继续导入?",
+          title: "平台不匹配",
+        )) {
+      return;
+    }
+    LocalStorageService.instance.settingsBox.clear();
+    LocalStorageService.instance.shieldBox.clear();
+    LocalStorageService.instance.settingsBox.putAll(data["config"]);
+    LocalStorageService.instance.shieldBox
+        .putAll(data["shield"].cast<String, String>());
+    AppSettingsController.instance.reloadFromStorage();
+    await LiveSubtitleService.instance.syncPreviewFromSettings();
+    SmartDialog.showToast("导入成功");
   }
 
   void resetDefaultConfig() {
@@ -231,6 +248,8 @@ class OtherSettingsController extends BaseController {
       if (value) {
         LocalStorageService.instance.settingsBox.clear();
         LocalStorageService.instance.shieldBox.clear();
+        AppSettingsController.instance.reloadFromStorage();
+        LiveSubtitleService.instance.stop();
         SmartDialog.showToast("重置成功,重启生效");
       }
     });

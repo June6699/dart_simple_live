@@ -27,6 +27,11 @@ class AppSettingsController extends GetxController {
 
   @override
   void onInit() {
+    _loadFromStorage();
+    super.onInit();
+  }
+
+  void _loadFromStorage() {
     themeMode.value = LocalStorageService.instance
         .getValue(LocalStorageService.kThemeMode, 0);
     firstRun = LocalStorageService.instance
@@ -92,6 +97,8 @@ class AppSettingsController extends GetxController {
 
     playerAutoPause.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPlayerAutoPause, false);
+    allowBackgroundPlayback.value =
+        _loadAllowBackgroundPlayback(playerAutoPause.value);
 
     playerForceHttps.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPlayerForceHttps, false);
@@ -139,6 +146,17 @@ class AppSettingsController extends GetxController {
     customPlayerOutput.value = LocalStorageService.instance
         .getValue(LocalStorageService.kCustomPlayerOutput, false);
 
+    liveSubtitleEnable.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kLiveSubtitleEnable, false);
+    liveSubtitleModelPath.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kLiveSubtitleModelPath, "");
+    liveSubtitleLanguage.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kLiveSubtitleLanguage, "auto");
+    liveSubtitleFontSize.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kLiveSubtitleFontSize, 18.0);
+    liveSubtitlePosition.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kLiveSubtitlePosition, 1);
+
     videoOutputDriver.value = LocalStorageService.instance.getValue(
       LocalStorageService.kVideoOutputDriver,
       Platform.isAndroid ? "gpu" : "libmpv",
@@ -175,8 +193,6 @@ class AppSettingsController extends GetxController {
 
     initSiteSort();
     initHomeSort();
-
-    super.onInit();
   }
 
   void initSiteSort() {
@@ -306,7 +322,7 @@ class AppSettingsController extends GetxController {
 
   var danmuLineCount = 8.obs;
   void setDanmuLineCount(int e) {
-    final value = e.clamp(1, 40);
+    final value = e.clamp(0, 40).toInt();
     danmuLineCount.value = value;
     LocalStorageService.instance
         .setValue(LocalStorageService.kDanmuLineCount, value);
@@ -406,9 +422,30 @@ class AppSettingsController extends GetxController {
       return 1;
     }
     final itemHeight = estimateDanmuTextHeight(fontSize: fontSize);
-    final safeArea = (area ?? danmuArea.value).clamp(0.1, 1.0);
+    final safeArea = (area ?? danmuArea.value).clamp(0.1, 1.0).toDouble();
     final maxRows = ((viewportHeight / itemHeight) * safeArea).floor();
-    return maxRows.clamp(1, 40);
+    return maxRows.clamp(1, 40).toInt();
+  }
+
+  int resolveDanmuTargetLineCount({
+    required double viewportHeight,
+    double? area,
+    double? fontSize,
+    int? lineCount,
+  }) {
+    final requestedLines = lineCount ?? danmuLineCount.value;
+    if (requestedLines <= 0) {
+      return 0;
+    }
+    if (viewportHeight <= 0) {
+      return requestedLines.clamp(1, 40).toInt();
+    }
+    final maxLines = estimateDanmuMaxVisibleLineCount(
+      viewportHeight: viewportHeight,
+      area: area,
+      fontSize: fontSize,
+    );
+    return requestedLines.clamp(1, maxLines).toInt();
   }
 
   double resolveDanmuEffectiveArea({
@@ -417,26 +454,28 @@ class AppSettingsController extends GetxController {
     double? fontSize,
     int? lineCount,
   }) {
-    final safeArea = (area ?? danmuArea.value).clamp(0.1, 1.0);
-    if (viewportHeight <= 0) {
-      return safeArea;
-    }
-    final maxLines = estimateDanmuMaxVisibleLineCount(
+    final safeArea = (area ?? danmuArea.value).clamp(0.1, 1.0).toDouble();
+    final targetLines = resolveDanmuTargetLineCount(
       viewportHeight: viewportHeight,
       area: safeArea,
       fontSize: fontSize,
+      lineCount: lineCount,
     );
-    final desiredLines = (lineCount ?? danmuLineCount.value).clamp(1, maxLines);
+    if (targetLines <= 0) {
+      return 0.0;
+    }
+    if (viewportHeight <= 0) {
+      return safeArea;
+    }
     final itemHeight = estimateDanmuTextHeight(fontSize: fontSize);
     final lineHeight = resolveDanmuLineHeight(
       viewportHeight: viewportHeight,
       area: safeArea,
       fontSize: fontSize,
-      lineCount: desiredLines,
+      lineCount: targetLines,
     );
-    final targetArea =
-        (desiredLines * itemHeight * lineHeight) / viewportHeight;
-    return targetArea.clamp(0.02, safeArea);
+    final targetArea = (targetLines * itemHeight * lineHeight) / viewportHeight;
+    return targetArea.clamp(0.0, safeArea).toDouble();
   }
 
   double resolveDanmuLineHeight({
@@ -445,15 +484,22 @@ class AppSettingsController extends GetxController {
     double? fontSize,
     int? lineCount,
   }) {
+    final targetLines = resolveDanmuTargetLineCount(
+      viewportHeight: viewportHeight,
+      area: area,
+      fontSize: fontSize,
+      lineCount: lineCount,
+    );
+    if (targetLines <= 0) {
+      return 1.0;
+    }
     if (viewportHeight <= 0) {
       return 1.2;
     }
-    final safeArea = (area ?? danmuArea.value).clamp(0.1, 1.0);
-    final desiredLines = (lineCount ?? danmuLineCount.value).clamp(1, 40);
+    final safeArea = (area ?? danmuArea.value).clamp(0.1, 1.0).toDouble();
     final itemHeight = estimateDanmuTextHeight(fontSize: fontSize);
-    final lineHeight =
-        ((viewportHeight * safeArea) / itemHeight) / desiredLines;
-    return lineHeight.clamp(1.0, 3.0);
+    final lineHeight = ((viewportHeight * safeArea) / itemHeight) / targetLines;
+    return lineHeight.clamp(1.0, 3.0).toDouble();
   }
 
   int resolveDanmuActualLineCount({
@@ -462,25 +508,12 @@ class AppSettingsController extends GetxController {
     double? fontSize,
     int? lineCount,
   }) {
-    if (viewportHeight <= 0) {
-      return 1;
-    }
-    final itemHeight = estimateDanmuTextHeight(fontSize: fontSize);
-    final lineHeight = resolveDanmuLineHeight(
+    return resolveDanmuTargetLineCount(
       viewportHeight: viewportHeight,
       area: area,
       fontSize: fontSize,
       lineCount: lineCount,
     );
-    final effectiveArea = resolveDanmuEffectiveArea(
-      viewportHeight: viewportHeight,
-      area: area,
-      fontSize: fontSize,
-      lineCount: lineCount,
-    );
-    final rows =
-        ((viewportHeight * effectiveArea) / (itemHeight * lineHeight)).floor();
-    return rows.clamp(1, 40);
   }
 
   int estimateDanmuSparseWarningThreshold({
@@ -586,6 +619,32 @@ class AppSettingsController extends GetxController {
     playerAutoPause.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kPlayerAutoPause, e);
+  }
+
+  bool _loadAllowBackgroundPlayback(bool legacyAutoPause) {
+    final box = LocalStorageService.instance.settingsBox;
+    if (box.containsKey(LocalStorageService.kAllowBackgroundPlayback)) {
+      return LocalStorageService.instance.getValue(
+        LocalStorageService.kAllowBackgroundPlayback,
+        true,
+      );
+    }
+    final value = !legacyAutoPause;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kAllowBackgroundPlayback,
+      value,
+    );
+    return value;
+  }
+
+  var allowBackgroundPlayback = true.obs;
+  void setAllowBackgroundPlayback(bool e) {
+    allowBackgroundPlayback.value = e;
+    playerAutoPause.value = !e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kAllowBackgroundPlayback, e);
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kPlayerAutoPause, !e);
   }
 
   var autoFullScreen = false.obs;
@@ -852,6 +911,15 @@ class AppSettingsController extends GetxController {
     }
     presets.sort((a, b) => a.name.compareTo(b.name));
     shieldPresetList.assignAll(presets);
+  }
+
+  void refreshShieldData() {
+    _loadShieldList();
+    _loadShieldPresetList();
+  }
+
+  void reloadFromStorage() {
+    _loadFromStorage();
   }
 
   void importShieldValue(String rawValue) {
@@ -1490,6 +1558,47 @@ class AppSettingsController extends GetxController {
     customPlayerOutput.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kCustomPlayerOutput, e);
+  }
+
+  var liveSubtitleEnable = false.obs;
+  void setLiveSubtitleEnable(bool e) {
+    liveSubtitleEnable.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kLiveSubtitleEnable, e);
+  }
+
+  var liveSubtitleModelPath = "".obs;
+  void setLiveSubtitleModelPath(String e) {
+    liveSubtitleModelPath.value = e.trim();
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kLiveSubtitleModelPath,
+      liveSubtitleModelPath.value,
+    );
+  }
+
+  var liveSubtitleLanguage = "auto".obs;
+  void setLiveSubtitleLanguage(String e) {
+    liveSubtitleLanguage.value = e.trim().isEmpty ? "auto" : e.trim();
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kLiveSubtitleLanguage,
+      liveSubtitleLanguage.value,
+    );
+  }
+
+  var liveSubtitleFontSize = 18.0.obs;
+  void setLiveSubtitleFontSize(double e) {
+    final value = e.clamp(12.0, 36.0).toDouble();
+    liveSubtitleFontSize.value = value;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kLiveSubtitleFontSize, value);
+  }
+
+  var liveSubtitlePosition = 1.obs;
+  void setLiveSubtitlePosition(int e) {
+    final value = e.clamp(0, 2).toInt();
+    liveSubtitlePosition.value = value;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kLiveSubtitlePosition, value);
   }
 
   var videoOutputDriver = "".obs;

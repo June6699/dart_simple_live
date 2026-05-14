@@ -11,6 +11,7 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
+import 'package:simple_live_app/services/live_subtitle_service.dart';
 import 'package:simple_live_app/widgets/superchat_card.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:window_manager/window_manager.dart';
@@ -36,11 +37,11 @@ Widget playerControls(
 
 EdgeInsets _fullScreenControlPadding(BuildContext context) {
   final mediaQuery = MediaQuery.of(context);
-  final padding = mediaQuery.padding;
   if (Platform.isIOS && mediaQuery.orientation == Orientation.landscape) {
-    return padding.copyWith(top: 0, bottom: 0);
+    final padding = mediaQuery.viewPadding;
+    return EdgeInsets.only(left: padding.left, right: padding.right);
   }
-  return padding;
+  return mediaQuery.padding;
 }
 
 Widget buildFullControls(
@@ -57,6 +58,7 @@ Widget buildFullControls(
         const SizedBox.expand(),
         buildDanmuView(videoState, controller),
         _buildPlayerSuperChatOverlay(controller),
+        _buildLiveSubtitleOverlay(videoState.context, controller),
         _buildBufferingIndicator(videoState),
         _buildGestureLayer(
           controller,
@@ -133,6 +135,7 @@ Widget buildControls(
         const SizedBox.expand(),
         buildDanmuView(videoState, controller),
         _buildPlayerSuperChatOverlay(controller),
+        _buildLiveSubtitleOverlay(videoState.context, controller),
         _buildBufferingIndicator(videoState),
         _buildGestureLayer(controller),
         _buildNormalBottomBar(
@@ -177,6 +180,78 @@ Widget _buildPlayerSuperChatOverlay(LiveRoomController controller) {
       left: 24,
       bottom: 24,
       child: PlayerSuperChatOverlay(controller: controller),
+    );
+  });
+}
+
+Widget _buildLiveSubtitleOverlay(
+  BuildContext context,
+  LiveRoomController controller,
+) {
+  return Obx(() {
+    final settings = AppSettingsController.instance;
+    if (!settings.liveSubtitleEnable.value ||
+        settings.liveSubtitleModelPath.value.trim().isEmpty ||
+        LiveSubtitleService.instance.subtitleText.value.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final padding = controller.fullScreenState.value
+        ? _fullScreenControlPadding(context)
+        : MediaQuery.of(context).padding;
+    final bottomOffset = controller.fullScreenState.value ? 96.0 : 56.0;
+    final alignment = switch (settings.liveSubtitlePosition.value) {
+      0 => Alignment.topCenter,
+      2 => Alignment.bottomCenter,
+      _ => Alignment.center,
+    };
+    final positionedPadding = EdgeInsets.only(
+      left: padding.left + 24,
+      right: padding.right + 24,
+      top: settings.liveSubtitlePosition.value == 0 ? padding.top + 64 : 0,
+      bottom: settings.liveSubtitlePosition.value == 2
+          ? padding.bottom + bottomOffset
+          : 0,
+    );
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Padding(
+          padding: positionedPadding,
+          child: Align(
+            alignment: alignment,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withAlpha(140),
+                  borderRadius: AppStyle.radius8,
+                ),
+                child: Padding(
+                  padding: AppStyle.edgeInsetsA8,
+                  child: Text(
+                    LiveSubtitleService.instance.subtitleText.value,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: settings.liveSubtitleFontSize.value,
+                      fontWeight: FontWeight.w600,
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black,
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   });
 }
@@ -627,6 +702,13 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
                     : MediaQuery.sizeOf(context).height;
                 controller.updateDanmakuViewportHeight(viewportHeight);
                 final settings = AppSettingsController.instance;
+                final resolvedLineCount = settings.resolveDanmuTargetLineCount(
+                  viewportHeight: viewportHeight,
+                  area: settings.danmuArea.value,
+                  fontSize: settings.danmuSize.value,
+                  lineCount: settings.danmuLineCount.value,
+                );
+                final hideDanmu = resolvedLineCount <= 0;
                 return DanmakuScreen(
                   key: controller.globalDanmuKey,
                   createdController: controller.initDanmakuController,
@@ -647,6 +729,10 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
                     duration: settings.danmuSpeed.value.toInt(),
                     opacity: settings.danmuOpacity.value,
                     fontWeight: settings.danmuFontWeight.value,
+                    hideTop: hideDanmu,
+                    hideBottom: hideDanmu,
+                    hideScroll: hideDanmu,
+                    hideSpecial: hideDanmu,
                   ),
                 );
               },

@@ -32,10 +32,10 @@ class SyncClientRequest {
   }
 
   Future<bool> syncTag(
-      SyncClinet client,
-      dynamic body, {
-        bool overlay = false,
-      }) async {
+    SyncClinet client,
+    dynamic body, {
+    bool overlay = false,
+  }) async {
     var url = "http://${client.address}:${client.port}/sync/tag";
     var data = await HttpClient.instance.postJson(
       url,
@@ -79,6 +79,27 @@ class SyncClientRequest {
     bool overlay = false,
   }) async {
     var url = "http://${client.address}:${client.port}/sync/blocked_word";
+    var data = await HttpClient.instance.postJson(
+      url,
+      data: body,
+      queryParameters: {
+        'overlay': overlay ? '1' : '0',
+      },
+    );
+
+    if (data["status"]) {
+      return true;
+    } else {
+      throw data["message"];
+    }
+  }
+
+  Future<bool> syncProfile(
+    SyncClinet client,
+    dynamic body, {
+    bool overlay = false,
+  }) async {
+    var url = "http://${client.address}:${client.port}/sync/profile";
     var data = await HttpClient.instance.postJson(
       url,
       data: body,

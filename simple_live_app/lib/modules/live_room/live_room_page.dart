@@ -36,6 +36,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   double _bottomActionInset(BuildContext context) {
+    if (Platform.isIOS &&
+        MediaQuery.of(context).orientation == Orientation.landscape) {
+      return 0;
+    }
     final safeInset = _bottomSafeInset(context);
     if (!Platform.isIOS) {
       return safeInset;
@@ -370,9 +374,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           key: controller.globalPlayerKey,
           controller: controller.videoController,
           pauseUponEnteringBackgroundMode:
-              AppSettingsController.instance.playerAutoPause.value,
+              !AppSettingsController.instance.allowBackgroundPlayback.value,
           resumeUponEnteringForegroundMode:
-              AppSettingsController.instance.playerAutoPause.value,
+              !AppSettingsController.instance.allowBackgroundPlayback.value,
           controls: (state) {
             return playerControls(state, controller);
           },

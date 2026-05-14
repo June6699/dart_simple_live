@@ -1,9 +1,14 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
+import 'package:path/path.dart' as p;
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_app/services/live_subtitle_service.dart';
+import 'package:simple_live_app/widgets/settings/settings_action.dart';
 import 'package:simple_live_app/widgets/settings/settings_card.dart';
 import 'package:simple_live_app/widgets/settings/settings_menu.dart';
 import 'package:simple_live_app/widgets/settings/settings_number.dart';
@@ -74,10 +79,11 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                 AppStyle.divider,
                 Obx(
                   () => SettingsSwitch(
-                    title: "进入后台自动暂停",
-                    value: controller.playerAutoPause.value,
+                    title: "允许后台继续播放",
+                    subtitle: "移动端仍可能被系统省电策略关闭，返回前台时会尽量自动恢复",
+                    value: controller.allowBackgroundPlayback.value,
                     onChanged: (e) {
-                      controller.setPlayerAutoPause(e);
+                      controller.setAllowBackgroundPlayback(e);
                     },
                   ),
                 ),
@@ -106,6 +112,119 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     value: controller.playerForceHttps.value,
                     onChanged: (e) {
                       controller.setPlayerForceHttps(e);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: AppStyle.edgeInsetsA12.copyWith(top: 24),
+            child: Text(
+              "实时字幕（实验）",
+              style: Get.textTheme.titleSmall,
+            ),
+          ),
+          SettingsCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Obx(
+                  () => SettingsSwitch(
+                    title: "启用实时字幕",
+                    subtitle:
+                        "需要先选择本机模型路径，${LiveSubtitleService.instance.platformStatusLabel}",
+                    value: controller.liveSubtitleEnable.value,
+                    onChanged: (e) async {
+                      if (e) {
+                        final hasModel = await LiveSubtitleService.instance
+                            .validateModelPath(
+                          controller.liveSubtitleModelPath.value,
+                        );
+                        if (!hasModel) {
+                          SmartDialog.showToast("请先选择有效的字幕模型路径");
+                          return;
+                        }
+                      }
+                      controller.setLiveSubtitleEnable(e);
+                      await LiveSubtitleService.instance
+                          .syncPreviewFromSettings();
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () {
+                    final modelPath = controller.liveSubtitleModelPath.value;
+                    final label =
+                        modelPath.isEmpty ? "未选择" : p.basename(modelPath);
+                    return SettingsAction(
+                      title: "模型路径",
+                      subtitle:
+                          modelPath.isEmpty ? "不内置模型，需用户自行下载并选择" : modelPath,
+                      value: label,
+                      onTap: () async {
+                        final result = await FilePicker.platform.pickFiles();
+                        final selectedPath = result?.files.single.path;
+                        if (selectedPath == null || selectedPath.isEmpty) {
+                          return;
+                        }
+                        if (!await LiveSubtitleService.instance
+                            .validateModelPath(selectedPath)) {
+                          SmartDialog.showToast("模型路径不存在");
+                          return;
+                        }
+                        controller.setLiveSubtitleModelPath(selectedPath);
+                        await LiveSubtitleService.instance
+                            .syncPreviewFromSettings();
+                      },
+                    );
+                  },
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsMenu<String>(
+                    title: "字幕语言",
+                    value: controller.liveSubtitleLanguage.value,
+                    valueMap: const {
+                      "auto": "自动",
+                      "zh": "中文",
+                      "en": "英语",
+                      "ja": "日语",
+                      "ko": "韩语",
+                    },
+                    onChanged: (e) async {
+                      controller.setLiveSubtitleLanguage(e);
+                      await LiveSubtitleService.instance
+                          .syncPreviewFromSettings();
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsNumber(
+                    title: "字幕字号",
+                    value: controller.liveSubtitleFontSize.value.toInt(),
+                    min: 12,
+                    max: 36,
+                    unit: "px",
+                    onChanged: (e) {
+                      controller.setLiveSubtitleFontSize(e.toDouble());
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsMenu<int>(
+                    title: "字幕位置",
+                    value: controller.liveSubtitlePosition.value,
+                    valueMap: const {
+                      0: "上方",
+                      1: "中间",
+                      2: "下方",
+                    },
+                    onChanged: (e) {
+                      controller.setLiveSubtitlePosition(e);
                     },
                   ),
                 ),

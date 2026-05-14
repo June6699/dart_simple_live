@@ -333,7 +333,9 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
   }
 
   void _replayDanmakuOverlay() {
-    if (!showDanmakuState.value || danmakuController == null) {
+    if (!showDanmakuState.value ||
+        AppSettingsController.instance.danmuLineCount.value <= 0 ||
+        danmakuController == null) {
       return;
     }
     final now = DateTime.now();
@@ -361,7 +363,8 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
   }
 
   void addDanmaku(List<DanmakuContentItem> items) {
-    if (!showDanmakuState.value) {
+    if (!showDanmakuState.value ||
+        AppSettingsController.instance.danmuLineCount.value <= 0) {
       return;
     }
     for (var item in items) {
@@ -444,6 +447,14 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       await Future.delayed(const Duration(milliseconds: 16));
     }
     //danmakuController?.clear();
+  }
+
+  Future<void> toggleFullScreen() async {
+    if (fullScreenState.value || smallWindowState.value) {
+      await exitPlayerWindowMode();
+    } else {
+      await enterFullScreen();
+    }
   }
 
   /// 退出全屏
@@ -604,6 +615,15 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
     if (fullScreenState.value) {
       await exitFull();
+    }
+  }
+
+  void toggleDanmakuByShortcut() {
+    showDanmakuState.value = !showDanmakuState.value;
+    if (!showDanmakuState.value) {
+      danmakuController?.clear();
+    } else {
+      rebuildDanmakuView(clearCurrent: false);
     }
   }
 

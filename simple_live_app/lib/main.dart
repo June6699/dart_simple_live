@@ -20,6 +20,7 @@ import 'package:simple_live_app/app/utils/listen_fourth_button.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/models/db/history.dart';
+import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/other/debug_log_page.dart';
 import 'package:simple_live_app/routes/app_pages.dart';
 import 'package:simple_live_app/routes/route_path.dart';
@@ -27,7 +28,9 @@ import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/services/live_subtitle_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_app/services/profile_backup_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 import 'package:simple_live_app/widgets/status/app_loadding_widget.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -135,9 +138,11 @@ Future initServices() async {
 
   Get.put(DouyinAccountService());
 
-  Get.put(SyncService());
-
   Get.put(FollowService());
+  Get.put(LiveSubtitleService());
+  Get.put(ProfileBackupService());
+
+  Get.put(SyncService());
 
   initCoreLog();
 }
@@ -264,17 +269,10 @@ class MyApp extends StatelessWidget {
                     },
                     child: KeyboardListener(
                       focusNode: FocusNode(),
+                      autofocus: true,
                       onKeyEvent: (KeyEvent event) async {
-                        if (event is KeyDownEvent &&
-                            event.logicalKey == LogicalKeyboardKey.escape) {
-                          // ESC退出全屏
-                          // 如果处于全屏状态，退出全屏
-                          if (!Platform.isAndroid && !Platform.isIOS) {
-                            if (await windowManager.isFullScreen()) {
-                              await windowManager.setFullScreen(false);
-                              return;
-                            }
-                          }
+                        if (event is KeyDownEvent) {
+                          await _handleGlobalShortcut(event);
                         }
                       },
                       child: child!,
@@ -308,5 +306,44 @@ class MyApp extends StatelessWidget {
         ),
       );
     }));
+  }
+
+  Future<void> _handleGlobalShortcut(KeyDownEvent event) async {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext != null &&
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return;
+    }
+
+    LiveRoomController? liveRoomController;
+    if (Get.isRegistered<LiveRoomController>()) {
+      liveRoomController = Get.find<LiveRoomController>();
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      if (liveRoomController != null &&
+          (liveRoomController.fullScreenState.value ||
+              liveRoomController.smallWindowState.value)) {
+        await liveRoomController.exitPlayerWindowMode();
+        return;
+      }
+      if (!Platform.isAndroid &&
+          !Platform.isIOS &&
+          await windowManager.isFullScreen()) {
+        await windowManager.setFullScreen(false);
+      }
+      return;
+    }
+
+    if (liveRoomController == null) {
+      return;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.keyF) {
+      await liveRoomController.toggleFullScreen();
+      return;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.keyD) {
+      liveRoomController.toggleDanmakuByShortcut();
+    }
   }
 }

@@ -4,6 +4,8 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart';
@@ -23,6 +25,7 @@ import 'package:simple_live_app/modules/sync/remote_sync/webdav/webdav_client.da
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_app/services/profile_backup_service.dart';
 
 class RemoteSyncWebDAVController extends BaseController {
   // ui
@@ -44,6 +47,7 @@ class RemoteSyncWebDAVController extends BaseController {
   final _userBilibiliAccountJsonName = 'SimpleLive_bilibili_account.json';
   final _userSettingsJsonName = 'SimpleLive_Settings.json';
   final _userTagsJsonName = 'SimpleLive_Tags.json';
+  final _profileJsonName = 'SimpleLive_Profile_v2.json';
 
   @override
   void onInit() {
@@ -170,6 +174,12 @@ class RemoteSyncWebDAVController extends BaseController {
     }
     try {
       // archive.add(filepath, data_map) 会导致文件损坏
+      archive.addFile(
+        ArchiveFile.string(
+          _profileJsonName,
+          ProfileBackupService.instance.exportProfileJson(),
+        ),
+      );
       // follows
       var userFollowList = DBService.instance.getFollowList();
       var dataFollowsMap = {
@@ -233,8 +243,23 @@ class RemoteSyncWebDAVController extends BaseController {
       final zipDecoder = ZipDecoder();
       return zipDecoder.decodeBytes(data);
     });
-    for (ArchiveFile file in archive) {
-      await _recovery(file);
+    final profileFile = archive
+        .where((file) => file.isFile && file.name == _profileJsonName)
+        .firstOrNull;
+    if (profileFile != null) {
+      try {
+        final summary = await ProfileBackupService.instance.importProfileJson(
+          utf8.decode(profileFile.content),
+          overwrite: true,
+        );
+        Log.i("已同步完整配置包：${summary.message}");
+      } catch (e) {
+        Log.e("同步完整配置包失败：$e", StackTrace.current);
+      }
+    } else {
+      for (ArchiveFile file in archive) {
+        await _recovery(file);
+      }
     }
     SmartDialog.dismiss();
     SmartDialog.showToast('同步完成');
@@ -305,6 +330,7 @@ class RemoteSyncWebDAVController extends BaseController {
         try {
           await LocalStorageService.instance.settingsBox.clear();
           LocalStorageService.instance.settingsBox.putAll(jsonData);
+          AppSettingsController.instance.reloadFromStorage();
           Log.i('已同步用户设置');
         } catch (e) {
           Log.e("同步用户设置失败：$e", StackTrace.current);

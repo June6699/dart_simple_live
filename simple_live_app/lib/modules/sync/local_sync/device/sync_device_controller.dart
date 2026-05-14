@@ -9,6 +9,7 @@ import 'package:simple_live_app/models/sync_client_info_model.dart';
 import 'package:simple_live_app/requests/sync_client_request.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/profile_backup_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 
 class SyncDeviceController extends BaseController {
@@ -19,7 +20,7 @@ class SyncDeviceController extends BaseController {
 
   Future<bool> showOverlayDialog() async {
     var overlay = await Utils.showAlertDialog(
-      "是否覆盖远端数据？",
+      "是否覆盖对方设备上的同类数据？选择“不覆盖”会合并同步。",
       title: "数据覆盖",
       confirm: "覆盖",
       cancel: "不覆盖",
@@ -39,6 +40,24 @@ class SyncDeviceController extends BaseController {
       // 标签和关注必须同时同步
       await request.syncTag(client, dataT, overlay: overlay);
       SmartDialog.showToast("已同步关注列表和标签");
+    } catch (e) {
+      SmartDialog.showToast("同步失败:$e");
+      Log.logPrint(e);
+    } finally {
+      SmartDialog.dismiss();
+    }
+  }
+
+  void syncProfile() async {
+    try {
+      var overlay = await showOverlayDialog();
+      SmartDialog.showLoading(msg: "同步中...");
+      await request.syncProfile(
+        client,
+        ProfileBackupService.instance.exportProfileJson(),
+        overlay: overlay,
+      );
+      SmartDialog.showToast("已同步配置包");
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
       Log.logPrint(e);

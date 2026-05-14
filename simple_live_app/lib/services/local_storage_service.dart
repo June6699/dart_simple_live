@@ -40,6 +40,7 @@ class LocalStorageService extends GetxService {
   static const String kRoomAutoExitDuration = "RoomAutoExitDuration";
   static const String kPlayerCompatMode = "PlayerCompatMode";
   static const String kPlayerAutoPause = "PlayerAutoPause";
+  static const String kAllowBackgroundPlayback = "AllowBackgroundPlayback";
   static const String kPlayerBufferSize = "PlayerBufferSize";
   static const String kPlayerForceHttps = "PlayerForceHttps";
   static const String kAutoFullScreen = "AutoFullScreen";
@@ -67,6 +68,11 @@ class LocalStorageService extends GetxService {
   static const String kWebDAVPassword = "kWebDAVPassword";
   static const String kWebDAVLastUploadTime = "kWebDAVLastUploadTime";
   static const String kWebDAVLastRecoverTime = "kWebDAVLastRecoverTime";
+  static const String kLiveSubtitleEnable = "LiveSubtitleEnable";
+  static const String kLiveSubtitleModelPath = "LiveSubtitleModelPath";
+  static const String kLiveSubtitleLanguage = "LiveSubtitleLanguage";
+  static const String kLiveSubtitleFontSize = "LiveSubtitleFontSize";
+  static const String kLiveSubtitlePosition = "LiveSubtitlePosition";
 
   late Box settingsBox;
   late Box<String> shieldBox;

@@ -6,6 +6,7 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/widgets/settings/settings_action.dart';
 import 'package:simple_live_app/widgets/settings/settings_card.dart';
+import 'package:simple_live_app/widgets/settings/settings_menu.dart';
 import 'package:simple_live_app/widgets/settings/settings_number.dart';
 import 'package:simple_live_app/widgets/settings/settings_switch.dart';
 
@@ -67,12 +68,22 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
         return;
       }
       final resolvedFontSize = fontSize ?? controller.danmuSize.value;
+      final resolvedLineCount = controller.resolveDanmuTargetLineCount(
+        viewportHeight: effectiveViewportHeight,
+        area: area ?? controller.danmuArea.value,
+        fontSize: resolvedFontSize,
+        lineCount: controller.danmuLineCount.value,
+      );
+      final hideDanmu = resolvedLineCount <= 0;
       final resolvedArea = controller.resolveDanmuEffectiveArea(
         viewportHeight: effectiveViewportHeight,
         area: area ?? controller.danmuArea.value,
         fontSize: resolvedFontSize,
         lineCount: controller.danmuLineCount.value,
       );
+      if (hideDanmu) {
+        previewController.clear();
+      }
       updateDanmuOption(
         previewController.option.copyWith(
           area: resolvedArea,
@@ -86,6 +97,10 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
           fontWeight: fontWeight ?? controller.danmuFontWeight.value,
           duration: duration ?? controller.danmuSpeed.value.toInt(),
           opacity: opacity ?? controller.danmuOpacity.value,
+          hideTop: hideDanmu,
+          hideBottom: hideDanmu,
+          hideScroll: hideDanmu,
+          hideSpecial: hideDanmu,
         ),
       );
     }
@@ -185,18 +200,16 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
               Obx(
                 () => Column(
                   children: [
-                    SettingsNumber(
+                    SettingsMenu<int>(
                       title: "显示几行",
-                      subtitle: "和显示区域一起决定同屏弹幕密度，比直接调上下间距更直观",
-                      value: controller.danmuLineCount.value.clamp(
-                        1,
+                      subtitle: "优先按这里显示，超过当前区域和字体能容纳的上限时自动收紧",
+                      value: controller.resolveDanmuTargetLineCount(
+                        viewportHeight: effectiveViewportHeight,
+                      ),
+                      valueMap: _buildDanmuLineValueMap(
                         controller.estimateDanmuMaxVisibleLineCount(
                           viewportHeight: effectiveViewportHeight,
                         ),
-                      ),
-                      min: 1,
-                      max: controller.estimateDanmuMaxVisibleLineCount(
-                        viewportHeight: effectiveViewportHeight,
                       ),
                       onChanged: (e) {
                         controller.setDanmuLineCount(e);
@@ -358,6 +371,13 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
     );
   }
 
+  Map<int, String> _buildDanmuLineValueMap(int maxLines) {
+    return {
+      0: "不显示弹幕",
+      for (int i = 1; i <= maxLines; i++) i: "$i 行",
+    };
+  }
+
   Widget _buildDanmuLineHint(BuildContext context, double viewportHeight) {
     final maxLines = controller.estimateDanmuMaxVisibleLineCount(
       viewportHeight: viewportHeight,
@@ -365,31 +385,20 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
     final actualLines = controller.resolveDanmuActualLineCount(
       viewportHeight: viewportHeight,
     );
-    final threshold = controller.estimateDanmuSparseWarningThreshold(
-      viewportHeight: viewportHeight,
-    );
-    final isSparse = actualLines <= threshold;
+    if (actualLines <= 0) {
+      return Text(
+        "按当前区域和字体估算，最多大约能排满 $maxLines 行；你现在选择不显示弹幕。",
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.grey,
+            ),
+      );
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          "按当前区域和字体估算，最多大约能排满 $maxLines 行；你现在会显示约 $actualLines 行。",
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.grey,
-              ),
-        ),
-        if (isSparse) ...[
-          AppStyle.vGap4,
-          Text(
-            "你选的行数太少了！我心里空落落的~",
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
-                  fontWeight: FontWeight.w600,
-                ),
+    return Text(
+      "按当前区域和字体估算，最多大约能排满 $maxLines 行；你现在会显示约 $actualLines 行。",
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey,
           ),
-        ],
-      ],
     );
   }
 

@@ -58,7 +58,7 @@ class _DanmakuScreenState extends State<DanmakuScreen>
   late double _danmakuHeight;
 
   /// 弹幕轨道数
-  late int _trackCount;
+  int _trackCount = 0;
 
   /// 弹幕轨道位置
   final List<double> _trackYPositions = [];
@@ -123,6 +123,9 @@ class _DanmakuScreenState extends State<DanmakuScreen>
   /// 添加弹幕
   void addDanmaku(DanmakuContentItem content) {
     if (!_running || !mounted) {
+      return;
+    }
+    if (_trackCount <= 0) {
       return;
     }
 
@@ -371,6 +374,9 @@ class _DanmakuScreenState extends State<DanmakuScreen>
     if (option.hideBottom && !_option.hideBottom) {
       _bottomDanmakuItems.clear();
     }
+    if (option.hideSpecial && !_option.hideSpecial) {
+      _specialDanmakuItems.clear();
+    }
     _option = option;
     _controller.option = _option;
 
@@ -532,6 +538,7 @@ class _DanmakuScreenState extends State<DanmakuScreen>
         if (_option.safeArea && _option.area == 1.0) {
           _trackCount = _trackCount - 1;
         }
+        _trackCount = _trackCount.clamp(0, 9999).toInt();
 
         _trackYPositions.clear();
         for (int i = 0; i < _trackCount; i++) {
