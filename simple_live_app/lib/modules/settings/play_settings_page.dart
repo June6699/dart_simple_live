@@ -264,6 +264,20 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     ),
                   ),
                 ),
+                if (Platform.isAndroid) AppStyle.divider,
+                Obx(
+                  () => Visibility(
+                    visible: Platform.isAndroid,
+                    child: SettingsSwitch(
+                      title: "退出时自动小窗",
+                      subtitle: "按返回键或退到后台时自动进入小窗，默认关闭",
+                      value: controller.autoPipOnExit.value,
+                      onChanged: (e) {
+                        controller.setAutoPipOnExit(e);
+                      },
+                    ),
+                  ),
+                ),
                 AppStyle.divider,
                 Obx(
                   () => SettingsSwitch(

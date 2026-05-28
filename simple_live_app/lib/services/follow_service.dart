@@ -17,6 +17,7 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/live_notification_service.dart';
 
 class FollowService extends GetxService {
   StreamSubscription<dynamic>? subscription;
@@ -44,6 +45,8 @@ class FollowService extends GetxService {
   var updating = false.obs;
 
   Timer? updateTimer;
+  final Set<String> _liveNotifySentIds = <String>{};
+  final Set<String> _liveNotifyReadyIds = <String>{};
 
   @override
   void onInit() {
@@ -106,15 +109,29 @@ class FollowService extends GetxService {
     if (toRemove.isNotEmpty) {
       DBService.instance.updateFollowTag(tag);
     }
-    // 标签内排序
-    curTagFollowList.sort(
-      (a, b) => b.liveStatus.value.compareTo(a.liveStatus.value),
-    );
+    curTagFollowList.assignAll(sortFollowUsers(curTagFollowList));
   }
 
   // 添加关注
   Future<void> addFollow(FollowUser follow) async {
     await DBService.instance.addFollow(follow);
+  }
+
+  Future<void> updateSpecialFollow(FollowUser follow, bool value) async {
+    follow.isSpecialFollow = value;
+    if (value) {
+      await LiveNotificationService.requestPermissionIfNeeded();
+      if (follow.liveStatus.value != 0) {
+        _liveNotifyReadyIds.add(follow.id);
+      }
+      if (follow.liveStatus.value == 2) {
+        _liveNotifySentIds.add(follow.id);
+      }
+    } else {
+      _liveNotifySentIds.remove(follow.id);
+    }
+    await DBService.instance.addFollow(follow);
+    filterData();
   }
 
   void initTimer() {
@@ -151,7 +168,8 @@ class FollowService extends GetxService {
   /// 获取最优并发数
   /// 根据 CPU 核心数和用户设置自动计算
   int getOptimalConcurrency() {
-    var userSetting = AppSettingsController.instance.updateFollowThreadCount.value;
+    var userSetting =
+        AppSettingsController.instance.updateFollowThreadCount.value;
 
     // 如果用户设置为 0，则自动根据 CPU 核心数计算
     if (userSetting == 0) {
@@ -222,6 +240,8 @@ class FollowService extends GetxService {
   }
 
   Future updateLiveStatus(FollowUser item) async {
+    final previousStatus = item.liveStatus.value;
+    final notifyReady = _liveNotifyReadyIds.contains(item.id);
     try {
       var site = Sites.allSites[item.siteId]!;
       // 先只查状态
@@ -233,7 +253,17 @@ class FollowService extends GetxService {
         item.liveStartTime = detail.showTime;
       } else {
         item.liveStartTime = null;
+        _liveNotifySentIds.remove(item.id);
       }
+      if (item.isSpecialFollow &&
+          notifyReady &&
+          previousStatus != 2 &&
+          item.liveStatus.value == 2 &&
+          !_liveNotifySentIds.contains(item.id)) {
+        _liveNotifySentIds.add(item.id);
+        unawaited(LiveNotificationService.showLiveStart(item));
+      }
+      _liveNotifyReadyIds.add(item.id);
     } catch (e) {
       Log.logPrint(e);
       item.liveStatus.value = 0;
@@ -241,10 +271,29 @@ class FollowService extends GetxService {
     }
   }
 
+  int compareFollowUsers(FollowUser a, FollowUser b) {
+    if (a.isSpecialFollow != b.isSpecialFollow) {
+      return a.isSpecialFollow ? -1 : 1;
+    }
+    final liveCompare = b.liveStatus.value.compareTo(a.liveStatus.value);
+    if (liveCompare != 0) {
+      return liveCompare;
+    }
+    return b.addTime.compareTo(a.addTime);
+  }
+
+  List<FollowUser> sortFollowUsers(Iterable<FollowUser> items) {
+    return items.toList()..sort(compareFollowUsers);
+  }
+
   void filterData() {
-    followList.sort((a, b) => b.liveStatus.value.compareTo(a.liveStatus.value));
-    liveList.assignAll(followList.where((x) => x.liveStatus.value == 2));
-    notLiveList.assignAll(followList.where((x) => x.liveStatus.value == 1));
+    followList.assignAll(sortFollowUsers(followList));
+    liveList.assignAll(
+      sortFollowUsers(followList.where((x) => x.liveStatus.value == 2)),
+    );
+    notLiveList.assignAll(
+      sortFollowUsers(followList.where((x) => x.liveStatus.value == 1)),
+    );
     _updatedListController.add(0);
   }
 
@@ -405,7 +454,8 @@ class FollowService extends GetxService {
             "userName": item.userName,
             "face": item.face,
             "addTime": item.addTime.toString(),
-            "tag": item.tag
+            "tag": item.tag,
+            "isSpecialFollow": item.isSpecialFollow
           },
         )
         .toList();

@@ -984,11 +984,20 @@ class DouyinSite implements LiveSite {
     );
     //var requlestUrl = await getAbogusUrl(uri.toString());
     var requlestUrl = uri.toString();
+    final requestHeaders = await getRequestHeaders();
     var headResp = await HttpClient.instance.head(
       'https://live.douyin.com',
-      header: headers,
+      header: requestHeaders,
     );
     var dyCookie = "";
+    final savedCookie =
+        requestHeaders["Cookie"] ?? requestHeaders["cookie"] ?? "";
+    if (savedCookie.toString().trim().isNotEmpty) {
+      dyCookie = savedCookie.toString().trim();
+      if (!dyCookie.endsWith(";")) {
+        dyCookie = "$dyCookie;";
+      }
+    }
     headResp.headers["set-cookie"]?.forEach((element) {
       var cookie = element.split(";")[0];
       if (cookie.contains("ttwid")) {
@@ -1023,6 +1032,9 @@ class DouyinSite implements LiveSite {
     if (result == "" || result == 'blocked') {
       throw Exception("抖音直播搜索被限制，请稍后再试");
     }
+    if (result is Map && result["status_code"] == 2483) {
+      throw Exception("抖音搜索需要登录，请在账号管理中通过网页登录或手动配置完整抖音 Cookie");
+    }
     var items = <LiveRoomItem>[];
     for (var item in result["data"] ?? []) {
       var itemData = json.decode(item["lives"]["rawdata"].toString());
@@ -1043,7 +1055,30 @@ class DouyinSite implements LiveSite {
     String keyword, {
     int page = 1,
   }) async {
-    throw Exception("抖音暂不支持搜索主播，请直接搜索直播间");
+    final result = await searchRooms(keyword, page: page);
+    final lowerKeyword = keyword.trim().toLowerCase();
+    final rooms = result.items.toList()
+      ..sort((a, b) {
+        final aMatched = a.userName.toLowerCase().contains(lowerKeyword);
+        final bMatched = b.userName.toLowerCase().contains(lowerKeyword);
+        if (aMatched != bMatched) {
+          return aMatched ? -1 : 1;
+        }
+        return b.online.compareTo(a.online);
+      });
+    return LiveSearchAnchorResult(
+      hasMore: result.hasMore,
+      items: rooms
+          .map(
+            (room) => LiveAnchorItem(
+              roomId: room.roomId,
+              userName: room.userName,
+              avatar: room.cover,
+              liveStatus: true,
+            ),
+          )
+          .toList(),
+    );
   }
 
   @override

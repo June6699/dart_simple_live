@@ -49,6 +49,8 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kDanmuSpeed, 10.0);
     danmuEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kDanmuEnable, true);
+    danmuRenderEmoji.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kDanmuRenderEmoji, true);
     danmuShieldEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kDanmuShieldEnable, true);
     danmuKeywordShieldEnable.value = LocalStorageService.instance
@@ -106,6 +108,8 @@ class AppSettingsController extends GetxController {
 
     autoFullScreen.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoFullScreen, false);
+    autoPipOnExit.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kAutoPipOnExit, false);
     playershowSuperChat.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPlayerShowSuperChat, false);
 
@@ -542,6 +546,13 @@ class AppSettingsController extends GetxController {
     LocalStorageService.instance.setValue(LocalStorageService.kDanmuEnable, e);
   }
 
+  var danmuRenderEmoji = true.obs;
+  void setDanmuRenderEmoji(bool e) {
+    danmuRenderEmoji.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kDanmuRenderEmoji, e);
+  }
+
   var danmuStrokeWidth = 2.0.obs;
   void setDanmuStrokeWidth(double e) {
     danmuStrokeWidth.value = e;
@@ -656,6 +667,13 @@ class AppSettingsController extends GetxController {
     autoFullScreen.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kAutoFullScreen, e);
+  }
+
+  var autoPipOnExit = false.obs;
+  void setAutoPipOnExit(bool e) {
+    autoPipOnExit.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kAutoPipOnExit, e);
   }
 
   var playershowSuperChat = false.obs;

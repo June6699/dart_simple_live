@@ -76,6 +76,7 @@ class ProfileBackupService extends GetxService {
   Future<ProfileImportSummary> importProfileJson(
     String content, {
     bool overwrite = false,
+    ProfileImportOptions options = const ProfileImportOptions(),
   }) async {
     final decoded = jsonDecode(content);
     if (decoded is! Map) {
@@ -88,18 +89,21 @@ class ProfileBackupService extends GetxService {
       return importProfileMap(
         decoded.cast<String, dynamic>(),
         overwrite: overwrite,
+        options: options,
       );
     }
     if (decoded["type"] == "simple_live") {
       return importLegacyProfileMap(
         decoded.cast<String, dynamic>(),
         overwrite: overwrite,
+        options: options,
       );
     }
     if (_looksLikeLegacyDataFile(decoded)) {
       return importLegacyDataFileMap(
         decoded.cast<String, dynamic>(),
         overwrite: overwrite,
+        options: options,
       );
     }
     throw const FormatException("不是 Simple Live 配置包");
@@ -108,14 +112,23 @@ class ProfileBackupService extends GetxService {
   Future<ProfileImportSummary> importLegacyProfileMap(
     Map<String, dynamic> payload, {
     bool overwrite = false,
+    ProfileImportOptions options = const ProfileImportOptions(),
   }) async {
     final summary = ProfileImportSummary();
-    await _importSettings(payload["config"], summary, overwrite);
-    await _importShields({"raw": _legacyShieldValues(payload["shield"])},
-        summary, overwrite);
+    if (options.settings) {
+      await _importSettings(payload["config"], summary, overwrite);
+    }
+    if (options.shields) {
+      await _importShields(
+          {"raw": _legacyShieldValues(payload["shield"])}, summary, overwrite);
+    }
 
-    AppSettingsController.instance.reloadFromStorage();
-    await LiveSubtitleService.instance.syncPreviewFromSettings();
+    if (options.settings || options.shields || options.shieldPresets) {
+      AppSettingsController.instance.reloadFromStorage();
+    }
+    if (options.settings) {
+      await LiveSubtitleService.instance.syncPreviewFromSettings();
+    }
     EventBus.instance.emit(Constant.kUpdateFollow, 0);
     EventBus.instance.emit(Constant.kUpdateHistory, 0);
     return summary;
@@ -153,27 +166,43 @@ class ProfileBackupService extends GetxService {
   Future<ProfileImportSummary> importLegacyDataFileMap(
     Map<String, dynamic> payload, {
     bool overwrite = false,
+    ProfileImportOptions options = const ProfileImportOptions(),
   }) async {
     final summary = ProfileImportSummary();
     if (payload["data"] is List) {
-      await _importLegacyDataList(payload["data"], summary, overwrite);
+      await _importLegacyDataList(payload["data"], summary, overwrite, options);
     } else {
-      await _importFollowUsers(_readPayloadList(payload, [
-        "followUsers",
-        "follows",
-        "favorites",
-      ]), summary, overwrite);
-      await _importFollowTags(_readPayloadList(payload, [
-        "followUserTags",
-        "tags",
-      ]), summary, overwrite);
-      await _importHistories(_readPayloadList(payload, [
-        "histories",
-        "history",
-      ]), summary, overwrite);
+      if (options.follows) {
+        await _importFollowUsers(
+            _readPayloadList(payload, [
+              "followUsers",
+              "follows",
+              "favorites",
+            ]),
+            summary,
+            overwrite);
+        await _importFollowTags(
+            _readPayloadList(payload, [
+              "followUserTags",
+              "tags",
+            ]),
+            summary,
+            overwrite);
+      }
+      if (options.histories) {
+        await _importHistories(
+            _readPayloadList(payload, [
+              "histories",
+              "history",
+            ]),
+            summary,
+            overwrite);
+      }
     }
 
-    await FollowService.instance.loadData(updateStatus: false);
+    if (options.follows) {
+      await FollowService.instance.loadData(updateStatus: false);
+    }
     EventBus.instance.emit(Constant.kUpdateFollow, 0);
     EventBus.instance.emit(Constant.kUpdateHistory, 0);
     return summary;
@@ -194,28 +223,58 @@ class ProfileBackupService extends GetxService {
   Future<ProfileImportSummary> importProfileMap(
     Map<String, dynamic> payload, {
     bool overwrite = false,
+    ProfileImportOptions options = const ProfileImportOptions(),
   }) async {
     final summary = ProfileImportSummary();
-    await _importSettings(payload["settings"], summary, overwrite);
-    await _importShields(payload["danmuShield"], summary, overwrite);
-    await _importShieldPresets(payload["shieldPresets"], summary, overwrite);
-    await _importFollowUsers(_readPayloadList(payload, [
-      "followUsers",
-      "follows",
-      "favorites",
-    ]), summary, overwrite);
-    await _importFollowTags(_readPayloadList(payload, [
-      "followUserTags",
-      "tags",
-    ]), summary, overwrite);
-    await _importHistories(_readPayloadList(payload, [
-      "histories",
-      "history",
-    ]), summary, overwrite);
+    if (options.settings) {
+      await _importSettings(payload["settings"], summary, overwrite);
+    }
+    if (options.shields) {
+      await _importShields(payload["danmuShield"], summary, overwrite);
+    }
+    if (options.shieldPresets) {
+      await _importShieldPresets(
+        payload["shieldPresets"],
+        summary,
+        overwrite,
+      );
+    }
+    if (options.follows) {
+      await _importFollowUsers(
+          _readPayloadList(payload, [
+            "followUsers",
+            "follows",
+            "favorites",
+          ]),
+          summary,
+          overwrite);
+      await _importFollowTags(
+          _readPayloadList(payload, [
+            "followUserTags",
+            "tags",
+          ]),
+          summary,
+          overwrite);
+    }
+    if (options.histories) {
+      await _importHistories(
+          _readPayloadList(payload, [
+            "histories",
+            "history",
+          ]),
+          summary,
+          overwrite);
+    }
 
-    AppSettingsController.instance.reloadFromStorage();
-    await LiveSubtitleService.instance.syncPreviewFromSettings();
-    await FollowService.instance.loadData(updateStatus: false);
+    if (options.settings || options.shields || options.shieldPresets) {
+      AppSettingsController.instance.reloadFromStorage();
+    }
+    if (options.settings) {
+      await LiveSubtitleService.instance.syncPreviewFromSettings();
+    }
+    if (options.follows) {
+      await FollowService.instance.loadData(updateStatus: false);
+    }
     EventBus.instance.emit(Constant.kUpdateFollow, 0);
     EventBus.instance.emit(Constant.kUpdateHistory, 0);
     return summary;
@@ -484,6 +543,7 @@ class ProfileBackupService extends GetxService {
     dynamic rawList,
     ProfileImportSummary summary,
     bool overwrite,
+    ProfileImportOptions options,
   ) async {
     if (rawList is! List || rawList.isEmpty) {
       return;
@@ -491,19 +551,25 @@ class ProfileBackupService extends GetxService {
     final firstMap = rawList.whereType<Map>().firstOrNull;
     if (firstMap != null) {
       if (firstMap.containsKey("userId") || firstMap.containsKey("tag")) {
-        await _importFollowTags(rawList, summary, overwrite);
+        if (options.follows) {
+          await _importFollowTags(rawList, summary, overwrite);
+        }
         return;
       }
       if (firstMap.containsKey("updateTime")) {
-        await _importHistories(rawList, summary, overwrite);
+        if (options.histories) {
+          await _importHistories(rawList, summary, overwrite);
+        }
         return;
       }
       if (firstMap.containsKey("roomId") || firstMap.containsKey("siteId")) {
-        await _importFollowUsers(rawList, summary, overwrite);
+        if (options.follows) {
+          await _importFollowUsers(rawList, summary, overwrite);
+        }
         return;
       }
     }
-    if (rawList.every((item) => item is String)) {
+    if (options.shields && rawList.every((item) => item is String)) {
       await _importShields({"raw": rawList}, summary, overwrite);
     }
   }
@@ -526,6 +592,22 @@ class ProfileBackupService extends GetxService {
     }
     return value.toString();
   }
+}
+
+class ProfileImportOptions {
+  final bool settings;
+  final bool shields;
+  final bool shieldPresets;
+  final bool follows;
+  final bool histories;
+
+  const ProfileImportOptions({
+    this.settings = true,
+    this.shields = true,
+    this.shieldPresets = true,
+    this.follows = true,
+    this.histories = true,
+  });
 }
 
 class ProfileImportSummary {

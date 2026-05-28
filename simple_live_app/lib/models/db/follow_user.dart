@@ -12,7 +12,8 @@ class FollowUser {
       required this.userName,
       required this.face,
       required this.addTime,
-      this.tag = "全部"});
+      this.tag = "全部",
+      this.isSpecialFollow = false});
 
   ///id=siteId_roomId
   @HiveField(0)
@@ -35,6 +36,9 @@ class FollowUser {
 
   @HiveField(6)
   String tag;
+
+  @HiveField(7)
+  bool isSpecialFollow;
 
   /// 直播状态
   /// 0=未知(加载中) 1=未开播 2=直播中
@@ -59,6 +63,8 @@ class FollowUser {
       addTime: DateTime.tryParse(json['addTime']?.toString() ?? "") ??
           DateTime.now(),
       tag: tagValue?.isNotEmpty == true ? tagValue! : "全部",
+      isSpecialFollow:
+          json["isSpecialFollow"] == true || json["isSpecialFollow"] == 1,
     );
   }
 
@@ -70,5 +76,6 @@ class FollowUser {
         'face': face,
         'addTime': addTime.toString(),
         'tag': tag,
+        'isSpecialFollow': isSpecialFollow,
       };
 }

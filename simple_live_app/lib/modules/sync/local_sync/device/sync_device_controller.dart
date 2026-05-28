@@ -9,6 +9,7 @@ import 'package:simple_live_app/models/sync_client_info_model.dart';
 import 'package:simple_live_app/requests/sync_client_request.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/profile_backup_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 
@@ -41,8 +42,8 @@ class SyncDeviceController extends BaseController {
       await request.syncTag(client, dataT, overlay: overlay);
       SmartDialog.showToast("已同步关注列表和标签");
     } catch (e) {
-      SmartDialog.showToast("同步失败:$e");
-      Log.logPrint(e);
+      SmartDialog.showToast("同步失败：${exceptionToString(e)}");
+      Log.e("同步关注和标签失败：$e", StackTrace.current);
     } finally {
       SmartDialog.dismiss();
     }
@@ -59,8 +60,8 @@ class SyncDeviceController extends BaseController {
       );
       SmartDialog.showToast("已同步配置包");
     } catch (e) {
-      SmartDialog.showToast("同步失败:$e");
-      Log.logPrint(e);
+      SmartDialog.showToast("同步失败：${exceptionToString(e)}");
+      Log.e("同步配置包失败：$e", StackTrace.current);
     } finally {
       SmartDialog.dismiss();
     }
@@ -75,8 +76,8 @@ class SyncDeviceController extends BaseController {
       await request.syncHistory(client, data, overlay: overlay);
       SmartDialog.showToast("已同步历史记录");
     } catch (e) {
-      SmartDialog.showToast("同步失败:$e");
-      Log.logPrint(e);
+      SmartDialog.showToast("同步失败：${exceptionToString(e)}");
+      Log.e("同步历史记录失败：$e", StackTrace.current);
     } finally {
       SmartDialog.dismiss();
     }
@@ -91,8 +92,8 @@ class SyncDeviceController extends BaseController {
       await request.syncBlockedWord(client, data, overlay: overlay);
       SmartDialog.showToast("已同步屏蔽词");
     } catch (e) {
-      SmartDialog.showToast("同步失败:$e");
-      Log.logPrint(e);
+      SmartDialog.showToast("同步失败：${exceptionToString(e)}");
+      Log.e("同步屏蔽词失败：$e", StackTrace.current);
     } finally {
       SmartDialog.dismiss();
     }
@@ -110,8 +111,27 @@ class SyncDeviceController extends BaseController {
           client, BiliBiliAccountService.instance.cookie);
       SmartDialog.showToast("已同步哔哩哔哩账号");
     } catch (e) {
-      SmartDialog.showToast("同步失败:$e");
-      Log.logPrint(e);
+      SmartDialog.showToast("同步失败：${exceptionToString(e)}");
+      Log.e("同步哔哩哔哩账号失败：$e", StackTrace.current);
+    } finally {
+      SmartDialog.dismiss();
+    }
+  }
+
+  void syncDouyinAccount() async {
+    try {
+      if (!DouyinAccountService.instance.hasCookie.value) {
+        SmartDialog.showToast("未配置抖音 Cookie");
+        return;
+      }
+      SmartDialog.showLoading(msg: "同步中...");
+
+      await request.syncDouyinAccount(
+          client, DouyinAccountService.instance.cookie);
+      SmartDialog.showToast("已同步抖音账号");
+    } catch (e) {
+      SmartDialog.showToast("同步失败：${exceptionToString(e)}");
+      Log.e("同步抖音账号失败：$e", StackTrace.current);
     } finally {
       SmartDialog.dismiss();
     }

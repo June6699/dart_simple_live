@@ -73,6 +73,9 @@ class _DanmakuScreenState extends State<DanmakuScreen>
   /// 运行状态
   bool _running = true;
 
+  final Map<String, ui.Image> _emojiImageCache = {};
+  final Set<String> _loadingEmojiImageUrls = {};
+
   @override
   void initState() {
     super.initState();
@@ -116,8 +119,38 @@ class _DanmakuScreenState extends State<DanmakuScreen>
     WidgetsBinding.instance.removeObserver(this);
     _animationController.dispose();
     _staticAnimationController.dispose();
+    _emojiImageCache.clear();
     _stopwatch.stop();
     super.dispose();
+  }
+
+  void _precacheEmojiImages(DanmakuContentItem content) {
+    for (final url in content.imageUrls ?? const <String>[]) {
+      final value = Utils.normalizeImageUrl(url);
+      if (value.isEmpty ||
+          _emojiImageCache.containsKey(value) ||
+          _loadingEmojiImageUrls.contains(value)) {
+        continue;
+      }
+      _loadingEmojiImageUrls.add(value);
+      final stream = NetworkImage(value).resolve(ImageConfiguration.empty);
+      late ImageStreamListener listener;
+      listener = ImageStreamListener(
+        (info, _) {
+          _loadingEmojiImageUrls.remove(value);
+          _emojiImageCache[value] = info.image;
+          if (mounted) {
+            setState(() {});
+          }
+          stream.removeListener(listener);
+        },
+        onError: (_, __) {
+          _loadingEmojiImageUrls.remove(value);
+          stream.removeListener(listener);
+        },
+      );
+      stream.addListener(listener);
+    }
   }
 
   /// 添加弹幕
@@ -128,6 +161,7 @@ class _DanmakuScreenState extends State<DanmakuScreen>
     if (_trackCount <= 0) {
       return;
     }
+    _precacheEmojiImages(content);
 
     if (content.type == DanmakuItemType.special) {
       if (!_option.hideSpecial) {
@@ -167,18 +201,13 @@ class _DanmakuScreenState extends State<DanmakuScreen>
       }
     } else {
       // 在这里提前创建 Paragraph 缓存防止卡顿
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: content.text,
-          style: TextStyle(
-            fontSize: _option.fontSize,
-            fontWeight: FontWeight.values[_option.fontWeight],
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final danmakuWidth = textPainter.width;
-      final danmakuHeight = textPainter.height;
+      final contentSize = Utils.measureContent(
+        content,
+        _option.fontSize,
+        _option.fontWeight,
+      );
+      final danmakuWidth = contentSize.width;
+      final danmakuHeight = contentSize.height;
 
       final ui.Paragraph paragraph = Utils.generateParagraph(
         content,
@@ -565,6 +594,7 @@ class _DanmakuScreenState extends State<DanmakuScreen>
                             _danmakuHeight,
                             _running,
                             _tick,
+                            _emojiImageCache,
                           ),
                           child: Container(),
                         );
@@ -587,6 +617,7 @@ class _DanmakuScreenState extends State<DanmakuScreen>
                             _danmakuHeight,
                             _running,
                             _tick,
+                            _emojiImageCache,
                           ),
                           child: Container(),
                         );

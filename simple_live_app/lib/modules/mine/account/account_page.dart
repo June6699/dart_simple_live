@@ -71,10 +71,8 @@ class AccountPage extends GetView<AccountController> {
               title: const Text("抖音直播"),
               subtitle: Text(DouyinAccountService.instance.hasCookie.value
                   ? "已自定义（${DouyinAccountService.instance.cookie.length} 字符）"
-                  : "使用默认 ttwid"),
-              trailing: DouyinAccountService.instance.hasCookie.value
-                  ? const Icon(Icons.delete_outline)
-                  : const Icon(Icons.chevron_right),
+                  : "使用默认 ttwid，搜索受限时可配置完整 Cookie"),
+              trailing: const Icon(Icons.chevron_right),
               onTap: controller.douyinTap,
             ),
           ),

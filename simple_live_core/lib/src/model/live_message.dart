@@ -30,12 +30,17 @@ class LiveMessage {
 
   /// 弹幕颜色
   final LiveMessageColor color;
+
+  /// 弹幕内表情图片地址
+  final List<String>? imageUrls;
+
   LiveMessage({
     required this.type,
     required this.userName,
     required this.message,
     this.data,
     required this.color,
+    this.imageUrls,
   });
 
   @override
@@ -46,6 +51,7 @@ class LiveMessage {
       "message": message,
       "data": data.toString(),
       "color": color.toString(),
+      "imageUrls": imageUrls,
     });
   }
 }

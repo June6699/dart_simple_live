@@ -26,12 +26,14 @@ import 'package:window_manager/window_manager.dart';
 class _DanmakuReplayEntry {
   final String message;
   final Color color;
+  final List<String>? imageUrls;
   final DateTime visibleFrom;
   final DateTime visibleUntil;
 
   const _DanmakuReplayEntry({
     required this.message,
     required this.color,
+    this.imageUrls,
     required this.visibleFrom,
     required this.visibleUntil,
   });
@@ -105,6 +107,11 @@ mixin PlayerStateMixin on PlayerMixin {
 
   /// 是否显示弹幕
   RxBool showDanmakuState = false.obs;
+
+  RxBool mutedState = false.obs;
+  double _volumeBeforeMute = 100.0;
+
+  void onPlayerWindowModeExited() {}
 
   /// 是否显示控制器
   RxBool showControlsState = false.obs;
@@ -290,6 +297,7 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
     String message,
     Color color, {
     Duration delay = Duration.zero,
+    List<String>? imageUrls,
   }) {
     var durationSeconds =
         AppSettingsController.instance.danmuSpeed.value.toInt();
@@ -302,6 +310,7 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
       _DanmakuReplayEntry(
         message: message,
         color: color,
+        imageUrls: imageUrls,
         visibleFrom: visibleFrom,
         visibleUntil: visibleFrom.add(Duration(seconds: durationSeconds)),
       ),
@@ -349,6 +358,7 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
         DanmakuContentItem(
           item.message,
           color: item.color,
+          imageUrls: item.imageUrls,
         ),
       );
     }
@@ -482,6 +492,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       _windowMaximizedBeforeFullScreen = false;
     }
     fullScreenState.value = false;
+    onPlayerWindowModeExited();
 
     //danmakuController?.clear();
   }
@@ -579,7 +590,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
 
     await windowManager.setAlwaysOnTop(true);
-    rebuildDanmakuView();
+    rebuildDanmakuView(clearCurrent: false);
   }
 
   ///退出小窗模式()
@@ -605,7 +616,8 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       await _refreshWindowsWindowBounds();
     }
     _windowMaximizedBeforeSmallWindow = false;
-    rebuildDanmakuView();
+    rebuildDanmakuView(clearCurrent: false);
+    onPlayerWindowModeExited();
     //windowManager.setAlignment(Alignment.center);
   }
 
@@ -626,6 +638,19 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     } else {
       rebuildDanmakuView(clearCurrent: false);
     }
+  }
+
+  Future<void> toggleMute() async {
+    if (mutedState.value) {
+      mutedState.value = false;
+      final restoreVolume =
+          _volumeBeforeMute <= 0 ? 100.0 : _volumeBeforeMute.clamp(0.0, 100.0);
+      await player.setVolume(restoreVolume);
+      return;
+    }
+    _volumeBeforeMute = player.state.volume;
+    mutedState.value = true;
+    await player.setVolume(0);
   }
 
   /// 设置横屏
@@ -911,7 +936,15 @@ mixin PlayerGestureControlMixin
 
   Future _realSetVolume(int volume) async {
     Log.logPrint(volume);
-    VolumeController.instance.setVolume(volume / 100);
+    if (volume <= 0) {
+      mutedState.value = true;
+      await player.setVolume(0);
+    } else {
+      mutedState.value = false;
+      _volumeBeforeMute = volume.toDouble();
+      await player.setVolume(volume.toDouble());
+    }
+    await VolumeController.instance.setVolume(volume / 100);
   }
 
   void setGestureBrightness(double dy) {

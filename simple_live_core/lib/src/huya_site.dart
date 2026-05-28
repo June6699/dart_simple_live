@@ -42,6 +42,8 @@ class HuyaSite implements LiveSite {
   );
 
   String? playUserAgent;
+  DateTime? _lastHeadlineEmptyLogAt;
+
   @override
   String id = "huya";
 
@@ -389,6 +391,8 @@ class HuyaSite implements LiveSite {
     var roomInfo = await _getRoomInfo(roomId);
     var tLiveInfo = roomInfo["roomInfo"]["tLiveInfo"];
     var tProfileInfo = roomInfo["roomInfo"]["tProfileInfo"];
+    var topSid = _asPositiveInt(roomInfo["topSid"]);
+    var subSid = _asPositiveInt(roomInfo["subSid"]);
 
     var title = tLiveInfo["sIntroduction"]?.toString() ?? "";
     if (title.isEmpty) {
@@ -408,7 +412,7 @@ class HuyaSite implements LiveSite {
             hlsAntiCode: item["sHlsAntiCode"].toString(),
             streamName: item["sStreamName"].toString(),
             cdnType: item["sCdnType"].toString(),
-            presenterUid: roomInfo["topSid"] ?? 0,
+            presenterUid: topSid > 0 ? topSid : subSid,
           ),
         );
       }
@@ -426,8 +430,6 @@ class HuyaSite implements LiveSite {
       );
     }
 
-    var topSid = roomInfo["topSid"];
-    var subSid = roomInfo["subSid"];
     final categoryId = _resolveHuyaCategoryId(tLiveInfo);
     final categoryName = tLiveInfo["sGameFullName"]?.toString().trim();
     final categoryParentId = _resolveHuyaParentCategoryId(tLiveInfo);
@@ -452,8 +454,8 @@ class HuyaSite implements LiveSite {
       ),
       danmakuData: HuyaDanmakuArgs(
         ayyuid: tLiveInfo["lYyid"] ?? 0,
-        topSid: topSid ?? 0,
-        subSid: subSid ?? 0,
+        topSid: topSid,
+        subSid: subSid,
       ),
       url: "https://www.huya.com/$roomId",
       categoryId: categoryId,
@@ -489,9 +491,61 @@ class HuyaSite implements LiveSite {
       RegExp(r'lSubChannelId":([0-9]+)').firstMatch(resultText)?.group(1) ??
           "0",
     );
+    topSid = topSid != null && topSid > 0
+        ? topSid
+        : _firstPositiveIntByKeys(jsonObj, const {"lchannelid", "channelid"});
+    subSid = subSid != null && subSid > 0
+        ? subSid
+        : _firstPositiveIntByKeys(jsonObj, const {
+            "lsubchannelid",
+            "subchannelid",
+          });
     jsonObj["topSid"] = topSid;
     jsonObj["subSid"] = subSid;
     return jsonObj;
+  }
+
+  int _asPositiveInt(dynamic value) {
+    if (value is int) {
+      return value > 0 ? value : 0;
+    }
+    final parsed = int.tryParse(value?.toString().trim() ?? "");
+    return parsed != null && parsed > 0 ? parsed : 0;
+  }
+
+  int _firstPositiveIntByKeys(
+    dynamic source,
+    Set<String> keys, {
+    int depth = 0,
+  }) {
+    if (source == null || depth > 8) {
+      return 0;
+    }
+    if (source is Map) {
+      for (final entry in source.entries) {
+        final key = entry.key?.toString().toLowerCase();
+        if (key != null && keys.contains(key)) {
+          final value = _asPositiveInt(entry.value);
+          if (value > 0) {
+            return value;
+          }
+        }
+      }
+      for (final value in source.values) {
+        final result = _firstPositiveIntByKeys(value, keys, depth: depth + 1);
+        if (result > 0) {
+          return result;
+        }
+      }
+    } else if (source is List) {
+      for (final item in source) {
+        final result = _firstPositiveIntByKeys(item, keys, depth: depth + 1);
+        if (result > 0) {
+          return result;
+        }
+      }
+    }
+    return 0;
   }
 
   @override
@@ -732,6 +786,14 @@ class HuyaSite implements LiveSite {
         pidCandidates.add(danmakuArgs.subSid);
       }
     }
+    if (detail?.data is HuyaUrlDataModel) {
+      final data = detail!.data as HuyaUrlDataModel;
+      for (final line in data.lines) {
+        if (line.presenterUid > 0) {
+          pidCandidates.add(line.presenterUid);
+        }
+      }
+    }
 
     final profileRoomId = int.tryParse(roomId) ?? 0;
     if (profileRoomId > 0) {
@@ -751,6 +813,11 @@ class HuyaSite implements LiveSite {
       }
     }
 
+    if (pidCandidates.isEmpty) {
+      _logHeadlineEmpty(roomId, pidCandidates, "no pid candidate");
+      return [];
+    }
+
     for (final pid in pidCandidates) {
       if (pid <= 0) {
         continue;
@@ -764,7 +831,20 @@ class HuyaSite implements LiveSite {
         CoreLog.error("Huya headline fetch failed for pid=$pid: $e");
       }
     }
+    _logHeadlineEmpty(roomId, pidCandidates, "empty response");
     return [];
+  }
+
+  void _logHeadlineEmpty(String roomId, Set<int> pidCandidates, String reason) {
+    final now = DateTime.now();
+    final last = _lastHeadlineEmptyLogAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 1)) {
+      return;
+    }
+    _lastHeadlineEmptyLogAt = now;
+    CoreLog.d(
+      "Huya headline $reason, roomId=$roomId, pidCandidates=${pidCandidates.join(",")}",
+    );
   }
 
   @override

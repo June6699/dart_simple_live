@@ -141,8 +141,8 @@ class RemoteSyncWebDAVController extends BaseController {
   // webDAV上传到云端
   Future<void> doWebDAVUpload() async {
     SmartDialog.showLoading(msg: "正在上传到云端");
-    _backupData().then((value) async {
-      SmartDialog.dismiss();
+    try {
+      final value = await _backupData();
       if (value.isNotEmpty) {
         var result = await davClient.backup(Uint8List.fromList(value));
         if (result) {
@@ -159,7 +159,12 @@ class RemoteSyncWebDAVController extends BaseController {
       } else {
         SmartDialog.showToast("上传失败");
       }
-    });
+    } catch (e) {
+      Log.e("WebDAV 上传失败：$e", StackTrace.current);
+      SmartDialog.showToast("上传失败：${exceptionToString(e)}");
+    } finally {
+      SmartDialog.dismiss();
+    }
   }
 
   // 备份所有数据
@@ -238,36 +243,55 @@ class RemoteSyncWebDAVController extends BaseController {
   // webDAV恢复到本地
   void doWebDAVRecovery() async {
     SmartDialog.showLoading(msg: "正在恢复到本地");
-    final data = await davClient.recovery();
-    final archive = await Isolate.run<Archive>(() {
-      final zipDecoder = ZipDecoder();
-      return zipDecoder.decodeBytes(data);
-    });
-    final profileFile = archive
-        .where((file) => file.isFile && file.name == _profileJsonName)
-        .firstOrNull;
-    if (profileFile != null) {
-      try {
-        final summary = await ProfileBackupService.instance.importProfileJson(
-          utf8.decode(profileFile.content),
-          overwrite: true,
-        );
-        Log.i("已同步完整配置包：${summary.message}");
-      } catch (e) {
-        Log.e("同步完整配置包失败：$e", StackTrace.current);
+    try {
+      final data = await davClient.recovery();
+      final archive = await Isolate.run<Archive>(() {
+        final zipDecoder = ZipDecoder();
+        return zipDecoder.decodeBytes(data);
+      });
+      final profileFile = archive
+          .where((file) => file.isFile && file.name == _profileJsonName)
+          .firstOrNull;
+      if (profileFile != null) {
+        try {
+          final summary = await ProfileBackupService.instance.importProfileJson(
+            utf8.decode(profileFile.content),
+            overwrite: true,
+            options: ProfileImportOptions(
+              settings: true,
+              follows: isSyncFollows.value,
+              histories: isSyncHistories.value,
+              shields: isSyncBlockWord.value,
+              shieldPresets: isSyncBlockWord.value,
+            ),
+          );
+          Log.i("已同步完整配置包：${summary.message}");
+        } catch (e) {
+          Log.e("同步完整配置包失败：$e", StackTrace.current);
+          rethrow;
+        }
+        for (ArchiveFile file in archive) {
+          if (file.name == _userBilibiliAccountJsonName) {
+            await _recovery(file);
+          }
+        }
+      } else {
+        for (ArchiveFile file in archive) {
+          await _recovery(file);
+        }
       }
-    } else {
-      for (ArchiveFile file in archive) {
-        await _recovery(file);
-      }
+      SmartDialog.showToast('同步完成');
+      DateTime recoverTime = DateTime.now();
+      lastRecoverTime.value = Utils.parseTime(recoverTime);
+      LocalStorageService.instance.setValue(
+          LocalStorageService.kWebDAVLastRecoverTime,
+          recoverTime.millisecondsSinceEpoch);
+    } catch (e) {
+      Log.e("WebDAV 恢复失败：$e", StackTrace.current);
+      SmartDialog.showToast("恢复失败：${exceptionToString(e)}");
+    } finally {
+      SmartDialog.dismiss();
     }
-    SmartDialog.dismiss();
-    SmartDialog.showToast('同步完成');
-    DateTime recoverTime = DateTime.now();
-    lastRecoverTime.value = Utils.parseTime(recoverTime);
-    LocalStorageService.instance.setValue(
-        LocalStorageService.kWebDAVLastRecoverTime,
-        recoverTime.millisecondsSinceEpoch);
   }
 
   Future<void> _recovery(ArchiveFile file) async {

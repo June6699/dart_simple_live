@@ -74,6 +74,16 @@ class SyncDevicePage extends GetView<SyncDeviceController> {
                     controller.syncBiliAccount();
                   },
                 ),
+                AppStyle.divider,
+                ListTile(
+                  leading: const Icon(Icons.music_note),
+                  title: const Text("同步抖音账号"),
+                  subtitle: const Text("给 TV 等设备同步网页登录 Cookie"),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    controller.syncDouyinAccount();
+                  },
+                ),
               ],
             ),
           ),

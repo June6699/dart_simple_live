@@ -74,7 +74,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           Align(
             alignment: Alignment.centerLeft,
             child: IconButton(
-              onPressed: () => Navigator.maybePop(context),
+              onPressed: () => _handleBack(context),
               icon: const Icon(Icons.arrow_back),
             ),
           ),
@@ -119,7 +119,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: IconButton(
-                        onPressed: () => Navigator.maybePop(context),
+                        onPressed: () => _handleBack(context),
                         icon: const Icon(Icons.arrow_back),
                       ),
                     ),
@@ -227,7 +227,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     return OrientationBuilder(
       builder: (context, orientation) {
         final hasLandscapeActionPanel = orientation == Orientation.landscape;
-        return Scaffold(
+        final scaffold = Scaffold(
           appBar: AppBar(
             automaticallyImplyLeading: false,
             titleSpacing: 0,
@@ -239,8 +239,27 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               ? buildPhoneUI(context)
               : buildTabletUI(context),
         );
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) {
+              return;
+            }
+            await _handleBack(context);
+          },
+          child: scaffold,
+        );
       },
     );
+  }
+
+  Future<void> _handleBack(BuildContext context) async {
+    if (await controller.tryAutoPipOnExit()) {
+      return;
+    }
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   Widget buildPhoneUI(BuildContext context) {
@@ -475,7 +494,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 AppStyle.hGap4,
                 Text(
                   Utils.onlineToString(
-                    controller.detail.value?.online ?? 0,
+                    controller.online.value,
                   ),
                   style: const TextStyle(fontSize: 14),
                 ),
@@ -582,6 +601,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           children: [
             ListView.separated(
               controller: controller.scrollController,
+              reverse: false,
               separatorBuilder: (_, i) => SizedBox(
                 // *2与原来的EdgeInsets.symmetric(vertical: )做兼容
                 height: AppSettingsController.instance.chatTextGap.value * 2,
@@ -600,8 +620,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 bottom: 12,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    controller.disableAutoScroll.value = false;
-                    controller.chatScrollToBottom();
+                    controller.forceChatScrollToBottom();
                   },
                   icon: const Icon(Icons.expand_more),
                   label: const Text("最新"),
@@ -663,6 +682,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
         userName: message.userName,
         remark: remark,
         message: message.message,
+        imageUrls: AppSettingsController.instance.danmuRenderEmoji.value
+            ? message.imageUrls
+            : null,
         userStyle: userStyle,
         messageStyle: messageStyle,
         onUserTap: () => controller.showUserActions(
@@ -1061,6 +1083,7 @@ class _InteractiveChatText extends StatelessWidget {
   final String userName;
   final String? remark;
   final String message;
+  final List<String>? imageUrls;
   final TextStyle userStyle;
   final TextStyle messageStyle;
   final VoidCallback onUserTap;
@@ -1070,6 +1093,7 @@ class _InteractiveChatText extends StatelessWidget {
     required this.userName,
     this.remark,
     required this.message,
+    this.imageUrls,
     required this.userStyle,
     required this.messageStyle,
     required this.onUserTap,
@@ -1093,6 +1117,20 @@ class _InteractiveChatText extends StatelessWidget {
             ),
           ),
         TextSpan(text: message),
+        for (final url in imageUrls ?? const <String>[])
+          if (url.trim().isNotEmpty)
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: NetImage(
+                  url.trim(),
+                  width: (messageStyle.fontSize ?? 14) * 1.35,
+                  height: (messageStyle.fontSize ?? 14) * 1.35,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
       ],
     );
   }

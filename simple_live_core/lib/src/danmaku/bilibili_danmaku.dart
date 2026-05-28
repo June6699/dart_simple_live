@@ -59,11 +59,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
     webScoketUtils = WebScoketUtils(
       url: "wss://${args.serverHost}/sub",
       heartBeatTime: heartbeatTime,
-      headers: args.cookie.isEmpty
-          ? null
-          : {
-              "cookie": args.cookie,
-            },
+      headers: args.cookie.isEmpty ? null : {"cookie": args.cookie},
       onMessage: (e) {
         decodeMessage(e);
       },
@@ -102,10 +98,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
 
   @override
   void heartbeat() {
-    webScoketUtils?.sendMessage(encodeData(
-      "",
-      2,
-    ));
+    webScoketUtils?.sendMessage(encodeData("", 2));
   }
 
   @override
@@ -172,10 +165,12 @@ class BiliBiliDanmaku implements LiveDanmaku {
 
         var text = utf8.decode(body, allowMalformed: true);
 
-        var group =
-            text.split(RegExp(r"[\x00-\x1f]+", unicode: true, multiLine: true));
-        for (var item
-            in group.where((x) => x.length > 2 && x.startsWith('{'))) {
+        var group = text.split(
+          RegExp(r"[\x00-\x1f]+", unicode: true, multiLine: true),
+        );
+        for (var item in group.where(
+          (x) => x.length > 2 && x.startsWith('{'),
+        )) {
           parseMessage(item);
         }
       }
@@ -194,6 +189,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
           var color = asT<int?>(obj["info"][0][3]) ?? 0;
           if (obj["info"][2] != null && obj["info"][2].length != 0) {
             var username = obj["info"][2][1].toString();
+            final imageUrls = _extractImageUrls(obj["info"], message);
             var liveMsg = LiveMessage(
               type: LiveMessageType.chat,
               userName: username,
@@ -201,6 +197,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
               color: color == 0
                   ? LiveMessageColor.white
                   : LiveMessageColor.numberToColor(color),
+              imageUrls: imageUrls.isEmpty ? null : imageUrls,
             );
             onMessage?.call(liveMsg);
           }
@@ -210,8 +207,8 @@ class BiliBiliDanmaku implements LiveDanmaku {
           return;
         }
         LiveSuperChatMessage sc = LiveSuperChatMessage(
-          backgroundBottomColor:
-              obj["data"]["background_bottom_color"].toString(),
+          backgroundBottomColor: obj["data"]["background_bottom_color"]
+              .toString(),
           backgroundColor: obj["data"]["background_color"].toString(),
           endTime: DateTime.fromMillisecondsSinceEpoch(
             obj["data"]["end_time"] * 1000,
@@ -238,9 +235,60 @@ class BiliBiliDanmaku implements LiveDanmaku {
     }
   }
 
+  List<String> _extractImageUrls(dynamic info, String message) {
+    final urls = <String>[];
+
+    void addUrl(dynamic url) {
+      final value = url?.toString().trim() ?? "";
+      if (value.isEmpty) {
+        return;
+      }
+      urls.add(value);
+    }
+
+    try {
+      if (info is List &&
+          info.length > 13 &&
+          info[0] is List &&
+          info[0].length > 13 &&
+          info[0][13] is Map) {
+        addUrl(info[0][13]["url"]);
+      }
+    } catch (_) {}
+
+    try {
+      if (info is List &&
+          info.isNotEmpty &&
+          info[0] is List &&
+          info[0].length > 15 &&
+          info[0][15] is Map) {
+        final extra = info[0][15]["extra"];
+        if (extra is String && extra.isNotEmpty) {
+          final extraObj = json.decode(extra);
+          final emots = extraObj["emots"];
+          if (emots is Map) {
+            for (final entry in emots.entries) {
+              final key = entry.key.toString();
+              if (key.isNotEmpty && !message.contains(key)) {
+                continue;
+              }
+              final emot = entry.value;
+              if (emot is Map) {
+                addUrl(emot["url"]);
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return urls.toSet().toList();
+  }
+
   int readInt(List<int> buffer, int start, int len) {
-    var bytes =
-        Uint8List.fromList(buffer.getRange(start, start + len).toList());
+    var bytes = Uint8List.fromList(
+      buffer.getRange(start, start + len).toList(),
+    );
     var byteBuffer = bytes.buffer;
     var data = ByteData.view(byteBuffer);
     var result = 0;

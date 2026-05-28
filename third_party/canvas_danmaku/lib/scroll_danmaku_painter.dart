@@ -13,6 +13,7 @@ class ScrollDanmakuPainter extends CustomPainter {
   final double danmakuHeight;
   final bool running;
   final int tick;
+  final Map<String, ui.Image> emojiImageCache;
   final int batchThreshold;
 
   final double totalDuration;
@@ -30,7 +31,8 @@ class ScrollDanmakuPainter extends CustomPainter {
     this.showStroke,
     this.danmakuHeight,
     this.running,
-    this.tick, {
+    this.tick,
+    this.emojiImageCache, {
     this.batchThreshold = 10, // 默认值为10，可以自行调整
   }) : totalDuration = danmakuDurationInSeconds * 1000;
 
@@ -47,7 +49,8 @@ class ScrollDanmakuPainter extends CustomPainter {
         item.lastDrawTick ??= item.creationTime;
         final endPosition = -item.width;
         final distance = startPosition - endPosition;
-        item.xPosition = item.xPosition +
+        item.xPosition =
+            item.xPosition +
             (((item.lastDrawTick! - tick) / totalDuration) * distance);
 
         if (item.xPosition < -item.width || item.xPosition > size.width) {
@@ -55,24 +58,44 @@ class ScrollDanmakuPainter extends CustomPainter {
         }
 
         item.paragraph ??= Utils.generateParagraph(
-            item.content, size.width, fontSize, fontWeight);
+          item.content,
+          size.width,
+          fontSize,
+          fontWeight,
+        );
 
         if (showStroke) {
           item.strokeParagraph ??= Utils.generateStrokeParagraph(
-              item.content, size.width, fontSize, fontWeight);
-          pictureCanvas.drawParagraph(
-              item.strokeParagraph!, Offset(item.xPosition, item.yPosition));
+            item.content,
+            size.width,
+            fontSize,
+            fontWeight,
+          );
+          if (item.strokeParagraph != null) {
+            pictureCanvas.drawParagraph(
+              item.strokeParagraph!,
+              Offset(item.xPosition, item.yPosition),
+            );
+          }
         }
 
         if (item.content.selfSend) {
           pictureCanvas.drawRect(
-              Offset(item.xPosition, item.yPosition).translate(-2, 2) &
-                  (Size(item.width, item.height) + const Offset(4, 0)),
-              selfSendPaint);
+            Offset(item.xPosition, item.yPosition).translate(-2, 2) &
+                (Size(item.width, item.height) + const Offset(4, 0)),
+            selfSendPaint,
+          );
         }
 
-        pictureCanvas.drawParagraph(
-            item.paragraph!, Offset(item.xPosition, item.yPosition));
+        final offset = Offset(item.xPosition, item.yPosition);
+        pictureCanvas.drawParagraph(item.paragraph!, offset);
+        Utils.drawEmojiImages(
+          pictureCanvas,
+          item.paragraph!,
+          item.content,
+          offset,
+          emojiImageCache,
+        );
         item.lastDrawTick = tick;
       }
 
@@ -84,7 +107,8 @@ class ScrollDanmakuPainter extends CustomPainter {
         item.lastDrawTick ??= item.creationTime;
         final endPosition = -item.width;
         final distance = startPosition - endPosition;
-        item.xPosition = item.xPosition +
+        item.xPosition =
+            item.xPosition +
             (((item.lastDrawTick! - tick) / totalDuration) * distance);
 
         if (item.xPosition < -item.width || item.xPosition > size.width) {
@@ -92,24 +116,44 @@ class ScrollDanmakuPainter extends CustomPainter {
         }
 
         item.paragraph ??= Utils.generateParagraph(
-            item.content, size.width, fontSize, fontWeight);
+          item.content,
+          size.width,
+          fontSize,
+          fontWeight,
+        );
 
         if (showStroke) {
           item.strokeParagraph ??= Utils.generateStrokeParagraph(
-              item.content, size.width, fontSize, fontWeight);
-          canvas.drawParagraph(
-              item.strokeParagraph!, Offset(item.xPosition, item.yPosition));
+            item.content,
+            size.width,
+            fontSize,
+            fontWeight,
+          );
+          if (item.strokeParagraph != null) {
+            canvas.drawParagraph(
+              item.strokeParagraph!,
+              Offset(item.xPosition, item.yPosition),
+            );
+          }
         }
 
         if (item.content.selfSend) {
           canvas.drawRect(
-              Offset(item.xPosition, item.yPosition).translate(-2, 2) &
-                  (Size(item.width, item.height) + const Offset(4, 0)),
-              selfSendPaint);
+            Offset(item.xPosition, item.yPosition).translate(-2, 2) &
+                (Size(item.width, item.height) + const Offset(4, 0)),
+            selfSendPaint,
+          );
         }
 
-        canvas.drawParagraph(
-            item.paragraph!, Offset(item.xPosition, item.yPosition));
+        final offset = Offset(item.xPosition, item.yPosition);
+        canvas.drawParagraph(item.paragraph!, offset);
+        Utils.drawEmojiImages(
+          canvas,
+          item.paragraph!,
+          item.content,
+          offset,
+          emojiImageCache,
+        );
         item.lastDrawTick = tick;
       }
     }

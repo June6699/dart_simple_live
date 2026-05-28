@@ -163,6 +163,7 @@ class DouyinDanmaku implements LiveDanmaku {
 
   void unPackWebcastChatMessage(List<int> payload) {
     var chatMessage = ChatMessage.fromBuffer(payload);
+    final imageUrls = _extractRtfImageUrls(chatMessage);
     onMessage?.call(
       LiveMessage(
         type: LiveMessageType.chat,
@@ -173,8 +174,41 @@ class DouyinDanmaku implements LiveDanmaku {
         //     : LiveMessageColor.numberToColor(color),
         message: chatMessage.content,
         userName: chatMessage.user.nickName,
+        imageUrls: imageUrls.isEmpty ? null : imageUrls,
       ),
     );
+  }
+
+  List<String> _extractRtfImageUrls(ChatMessage chatMessage) {
+    final urls = <String>[];
+    void addFromImage(Image image) {
+      for (final url in image.urlListList) {
+        final value = url.trim();
+        if (value.isNotEmpty) {
+          urls.add(value);
+        }
+      }
+    }
+
+    if (chatMessage.hasBackgroundImage()) {
+      addFromImage(chatMessage.backgroundImage);
+    }
+    if (chatMessage.hasBackgroundImageV2()) {
+      addFromImage(chatMessage.backgroundImageV2);
+    }
+    if (chatMessage.hasGiftImage()) {
+      addFromImage(chatMessage.giftImage);
+    }
+    if (!chatMessage.hasRtfContent()) {
+      return urls.toSet().toList();
+    }
+    for (final piece in chatMessage.rtfContent.piecesList) {
+      if (!piece.hasImageValue() || !piece.imageValue.hasImage()) {
+        continue;
+      }
+      addFromImage(piece.imageValue.image);
+    }
+    return urls.toSet().toList();
   }
 
   void unPackWebcastRoomUserSeqMessage(List<int> payload) {

@@ -144,6 +144,10 @@ class LiveRoomController extends PlayerController
   final Set<String> _superChatFingerprints = <String>{};
   final Set<Timer> _pendingDanmakuTimers = <Timer>{};
   Timer? _superChatRefreshTimer;
+  Timer? _chatBottomRestoreTimer;
+  Timer? _onlineRefreshTimer;
+  bool _onlineRefreshInFlight = false;
+  bool _autoPipAttempting = false;
 
   @override
   void onInit() {
@@ -265,6 +269,7 @@ class LiveRoomController extends PlayerController
       message: normalizedMessage,
       data: message.data,
       color: message.color,
+      imageUrls: message.imageUrls,
     );
   }
 
@@ -561,6 +566,9 @@ class LiveRoomController extends PlayerController
       msg.message,
       color,
       delay: delay,
+      imageUrls: AppSettingsController.instance.danmuRenderEmoji.value
+          ? msg.imageUrls
+          : null,
     );
 
     void emit() {
@@ -573,6 +581,9 @@ class LiveRoomController extends PlayerController
         DanmakuContentItem(
           msg.message,
           color: color,
+          imageUrls: AppSettingsController.instance.danmuRenderEmoji.value
+              ? msg.imageUrls
+              : null,
         ),
       ]);
     }
@@ -648,6 +659,11 @@ class LiveRoomController extends PlayerController
     if (added.isNotEmpty) {
       superChats.addAll(added);
     }
+    _sortSuperChats();
+  }
+
+  void _sortSuperChats() {
+    superChats.sort((a, b) => a.endTime.compareTo(b.endTime));
   }
 
   void _refreshSuperChatFingerprints() {
@@ -671,6 +687,43 @@ class LiveRoomController extends PlayerController
     superChats.clear();
     _superChatFingerprints.clear();
     _superChatRefreshTimer?.cancel();
+    _superChatRefreshTimer = null;
+  }
+
+  void _restartOnlineRefreshTimer() {
+    _onlineRefreshTimer?.cancel();
+    _onlineRefreshInFlight = false;
+    if (!liveStatus.value) {
+      return;
+    }
+    _onlineRefreshTimer =
+        Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (_onlineRefreshInFlight || _roomDisposed || !liveStatus.value) {
+        return;
+      }
+      _onlineRefreshInFlight = true;
+      try {
+        final roomDetail = _sanitizeRoomDetail(
+          await site.liveSite
+              .getRoomDetail(roomId: roomId)
+              .timeout(const Duration(seconds: 8)),
+        );
+        if (_roomDisposed) {
+          return;
+        }
+        online.value = roomDetail.online;
+        liveStatus.value = roomDetail.status || roomDetail.isRecord;
+        if (!liveStatus.value) {
+          _onlineRefreshTimer?.cancel();
+          _onlineRefreshTimer = null;
+          _restartSuperChatRefreshTimer();
+        }
+      } catch (e) {
+        Log.d("刷新${site.name}热度失败: $e");
+      } finally {
+        _onlineRefreshInFlight = false;
+      }
+    });
   }
 
   void _refreshDanmakuOverlay(String reason) {
@@ -734,15 +787,10 @@ class LiveRoomController extends PlayerController
 
   /// 初始化自动关闭计时器
   void initAutoExit() {
-    if (AppSettingsController.instance.autoExitEnable.value) {
-      autoExitEnable.value = true;
-      autoExitMinutes.value =
-          AppSettingsController.instance.autoExitDuration.value;
-      setAutoExit();
-    } else {
-      autoExitMinutes.value =
-          AppSettingsController.instance.roomAutoExitDuration.value;
-    }
+    autoExitEnable.value = false;
+    autoExitMinutes.value =
+        AppSettingsController.instance.roomAutoExitDuration.value;
+    countdown.value = autoExitMinutes.value * 60;
   }
 
   void setAutoExit() {
@@ -780,6 +828,34 @@ class LiveRoomController extends PlayerController
       }
     });
   }
+
+  void stopAutoExit() {
+    autoExitEnable.value = false;
+    autoExitTimer?.cancel();
+    countdown.value = autoExitMinutes.value * 60;
+  }
+
+  Future<bool> tryAutoPipOnExit() async {
+    if (!Platform.isAndroid ||
+        !AppSettingsController.instance.autoPipOnExit.value ||
+        !liveStatus.value ||
+        _autoPipAttempting) {
+      return false;
+    }
+    _autoPipAttempting = true;
+    try {
+      if (await pip.isPipAvailable == false) {
+        return false;
+      }
+      await enablePIP();
+      return true;
+    } catch (e) {
+      Log.d("自动进入小窗失败: $e");
+      return false;
+    } finally {
+      _autoPipAttempting = false;
+    }
+  }
   // 页面刷新与重载逻辑
 
   void refreshRoom() {
@@ -787,8 +863,16 @@ class LiveRoomController extends PlayerController
     _clearSuperChatState();
     _clearContributionRankState();
     liveDanmaku.stop();
+    if (detail.value != null) {
+      getSuperChatMessage();
+    }
 
     loadData();
+  }
+
+  @override
+  void onPlayerWindowModeExited() {
+    forceChatScrollToBottom(delay: const Duration(milliseconds: 120));
   }
 
   @override
@@ -802,6 +886,8 @@ class LiveRoomController extends PlayerController
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
     _superChatRefreshTimer?.cancel();
+    _onlineRefreshTimer?.cancel();
+    _chatBottomRestoreTimer?.cancel();
     _cancelPendingDanmakuTimers();
     clearDanmakuReplayHistory();
     _liveDurationTimer?.cancel();
@@ -824,6 +910,22 @@ class LiveRoomController extends PlayerController
       }
       scrollController.jumpTo(scrollController.position.maxScrollExtent);
     }
+  }
+
+  void forceChatScrollToBottom({Duration delay = Duration.zero}) {
+    _chatBottomRestoreTimer?.cancel();
+    _chatBottomRestoreTimer = Timer(delay, () {
+      disableAutoScroll.value = false;
+      if (!scrollController.hasClients) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!scrollController.hasClients) {
+          return;
+        }
+        scrollController.jumpTo(scrollController.position.maxScrollExtent);
+      });
+    });
   }
 
   /// 初始化弹幕连接回调
@@ -971,6 +1073,7 @@ class LiveRoomController extends PlayerController
       online.value = detail.value!.online;
       liveStatus.value = detail.value!.status || detail.value!.isRecord;
       _restartSuperChatRefreshTimer();
+      _restartOnlineRefreshTimer();
       if (liveStatus.value) {
         getPlayQualites();
       }
@@ -1249,6 +1352,7 @@ class LiveRoomController extends PlayerController
     superChats.value = superChats
         .where((x) => x.endTime.millisecondsSinceEpoch > now)
         .toList();
+    _sortSuperChats();
     _refreshSuperChatFingerprints();
   }
 
@@ -1934,11 +2038,17 @@ class LiveRoomController extends PlayerController
   List<FollowUser> _followUsersByFilterMode(int filterMode) {
     switch (filterMode) {
       case 1:
-        return FollowService.instance.liveList;
+        return FollowService.instance.sortFollowUsers(
+          FollowService.instance.liveList,
+        );
       case 2:
-        return FollowService.instance.notLiveList;
+        return FollowService.instance.sortFollowUsers(
+          FollowService.instance.notLiveList,
+        );
       default:
-        return FollowService.instance.followList;
+        return FollowService.instance.sortFollowUsers(
+          FollowService.instance.followList,
+        );
     }
   }
 
@@ -2030,11 +2140,6 @@ class LiveRoomController extends PlayerController
   }
 
   void showAutoExitSheet() {
-    if (AppSettingsController.instance.autoExitEnable.value &&
-        !delayAutoExit.value) {
-      SmartDialog.showToast("已设置全局定时关闭");
-      return;
-    }
     Utils.showBottomSheet(
       title: "定时关闭",
       child: ListView(
@@ -2048,8 +2153,11 @@ class LiveRoomController extends PlayerController
               value: autoExitEnable.value,
               onChanged: (e) {
                 autoExitEnable.value = e;
-
-                setAutoExit();
+                if (e) {
+                  setAutoExit();
+                } else {
+                  stopAutoExit();
+                }
                 //controller.setAutoExitEnable(e);
               },
             ),
@@ -2088,7 +2196,11 @@ class LiveRoomController extends PlayerController
                 AppSettingsController.instance
                     .setRoomAutoExitDuration(autoExitMinutes.value);
                 //setAutoExitDuration(duration.inMinutes);
-                setAutoExit();
+                if (autoExitEnable.value) {
+                  setAutoExit();
+                } else {
+                  countdown.value = autoExitMinutes.value * 60;
+                }
               },
             ),
           ),
@@ -2210,6 +2322,7 @@ ${errorStackTrace ?? ""}''');
       );
     } else if (state == AppLifecycleState.inactive) {
       Log.d("应用短暂失焦:$state");
+      unawaited(tryAutoPipOnExit());
     }
   }
 

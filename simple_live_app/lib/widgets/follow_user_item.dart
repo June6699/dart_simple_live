@@ -11,12 +11,14 @@ import 'dart:ui' as ui;
 class FollowUserItem extends StatelessWidget {
   final FollowUser item;
   final Function()? onRemove;
+  final Function()? onSpecialTap;
   final Function()? onTap;
   final Function()? onLongPress;
   final bool playing;
   const FollowUserItem({
     required this.item,
     this.onRemove,
+    this.onSpecialTap,
     this.onTap,
     this.onLongPress,
     this.playing = false,
@@ -127,11 +129,27 @@ class FollowUserItem extends StatelessWidget {
             )
           : (onRemove == null
               ? null
-              : IconButton(
-                  onPressed: () {
-                    onRemove?.call();
-                  },
-                  icon: const Icon(Remix.dislike_line),
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (onSpecialTap != null)
+                      IconButton(
+                        tooltip: item.isSpecialFollow ? "取消特别关注" : "特别关注",
+                        onPressed: () {
+                          onSpecialTap?.call();
+                        },
+                        icon: Icon(
+                          item.isSpecialFollow ? Icons.star : Icons.star_border,
+                          color: item.isSpecialFollow ? Colors.amber : null,
+                        ),
+                      ),
+                    IconButton(
+                      onPressed: () {
+                        onRemove?.call();
+                      },
+                      icon: const Icon(Remix.dislike_line),
+                    ),
+                  ],
                 )),
       onTap: onTap,
       onLongPress: onLongPress,

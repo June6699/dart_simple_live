@@ -478,12 +478,24 @@ Widget _buildFullBottomBar(
                     volumeButtonKey.currentContext!,
                   );
                 },
-                icon: const Icon(
-                  Icons.volume_down,
+                icon: Icon(
+                  controller.mutedState.value
+                      ? Icons.volume_off
+                      : Icons.volume_down,
                   size: 24,
                   color: Colors.white,
                 ),
               ),
+            IconButton(
+              onPressed: controller.toggleMute,
+              icon: Icon(
+                controller.mutedState.value
+                    ? Icons.volume_off
+                    : Icons.volume_up,
+                size: 24,
+                color: Colors.white,
+              ),
+            ),
             TextButton(
               onPressed: () => showQualitesInfo(controller),
               child: Text(
@@ -589,12 +601,24 @@ Widget _buildNormalBottomBar(
                     volumeButtonKey.currentContext!,
                   );
                 },
-                icon: const Icon(
-                  Icons.volume_down,
+                icon: Icon(
+                  controller.mutedState.value
+                      ? Icons.volume_off
+                      : Icons.volume_down,
                   size: 24,
                   color: Colors.white,
                 ),
               ),
+            IconButton(
+              onPressed: controller.toggleMute,
+              icon: Icon(
+                controller.mutedState.value
+                    ? Icons.volume_off
+                    : Icons.volume_up,
+                size: 24,
+                color: Colors.white,
+              ),
+            ),
             if (!isPortrait)
               TextButton(
                 onPressed: () => showQualitesInfo(controller),

@@ -17,10 +17,17 @@ class DanmakuContentItem {
 
   /// 是否为自己发送
   final bool selfSend;
-  DanmakuContentItem(this.text,
-      {this.color = Colors.white,
-      this.type = DanmakuItemType.scroll,
-      this.selfSend = false});
+
+  /// 文本内表情图片地址
+  final List<String>? imageUrls;
+
+  DanmakuContentItem(
+    this.text, {
+    this.color = Colors.white,
+    this.type = DanmakuItemType.scroll,
+    this.selfSend = false,
+    this.imageUrls,
+  });
 }
 
 class SpecialDanmakuContentItem extends DanmakuContentItem {
@@ -129,8 +136,8 @@ class SpecialDanmakuContentItem extends DanmakuContentItem {
   ) {
     double toRadix(double? value, dynamic rawValue) =>
         (value! > 1 || (rawValue is String && !rawValue.contains('.')))
-            ? value /= videoSize
-            : value;
+        ? value /= videoSize
+        : value;
 
     double? convert(value) {
       if (value is num) {
@@ -152,18 +159,18 @@ class SpecialDanmakuContentItem extends DanmakuContentItem {
   }
 
   static int _parseInt(dynamic digit) => switch (digit) {
-        int() => digit,
-        double() => digit.toInt(),
-        String() => int.tryParse(digit) ?? 0,
-        _ => throw UnimplementedError()
-      };
+    int() => digit,
+    double() => digit.toInt(),
+    String() => int.tryParse(digit) ?? 0,
+    _ => throw UnimplementedError(),
+  };
 
   static double _parseDouble(dynamic digit) => switch (digit) {
-        int() => digit.toDouble(),
-        double() => digit,
-        String() => double.tryParse(digit) ?? 0,
-        _ => throw UnimplementedError()
-      };
+    int() => digit.toDouble(),
+    double() => digit,
+    String() => double.tryParse(digit) ?? 0,
+    _ => throw UnimplementedError(),
+  };
 
   static Tween<T> _makeTween<T>(T start, T end) {
     return start == end

@@ -54,6 +54,9 @@ class RoutePath {
   /// BiliBili 二维码登录
   static const kBiliBiliQRLogin = "/settings/account/bilibili/qr_login";
 
+  /// 抖音 Web登录
+  static const kDouyinWebLogin = "/settings/account/douyin/web_login";
+
   /// 数据同步
   static const kLocalSync = "/local_sync";
 

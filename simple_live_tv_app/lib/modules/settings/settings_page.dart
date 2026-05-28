@@ -8,6 +8,7 @@ import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
 import 'package:simple_live_tv_app/modules/settings/settings_controller.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
+import 'package:simple_live_tv_app/services/douyin_account_service.dart';
 import 'package:simple_live_tv_app/services/follow_user_service.dart';
 import 'package:simple_live_tv_app/services/signalr_service.dart';
 import 'package:simple_live_tv_app/widgets/app_scaffold.dart';
@@ -467,18 +468,24 @@ class SettingsPage extends GetView<SettingsController> {
           },
         ),
         AppStyle.vGap24,
-        HighlightListTile(
-          focusNode: AppFocusNode(),
-          title: "抖音账号",
-          subtitle: "无需登录",
-          leading: Image.asset(
-            "assets/images/douyin.png",
-            width: 64.w,
-            height: 64.w,
+        Obx(
+          () => HighlightListTile(
+            focusNode: AppFocusNode(),
+            title: "抖音账号",
+            subtitle: DouyinAccountService.instance.hasCookie.value
+                ? "已同步 Cookie，可用于抖音搜索"
+                : "TV 端请从手机/电脑端同步网页登录 Cookie",
+            leading: Image.asset(
+              "assets/images/douyin.png",
+              width: 64.w,
+              height: 64.w,
+            ),
+            onTap: () {
+              SmartDialog.showToast(
+                "请先在手机/电脑端完成抖音网页登录，再通过局域网同步里的“同步抖音账号”发送到 TV",
+              );
+            },
           ),
-          onTap: () {
-            SmartDialog.showToast("无需登录抖音，您可以直接观看直播");
-          },
         )
       ],
     );

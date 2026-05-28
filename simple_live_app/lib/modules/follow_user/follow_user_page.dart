@@ -123,28 +123,49 @@ class FollowUserPage extends GetView<FollowUserController> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: AppStyle.edgeInsetsL8,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Obx(
-                    () => SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Wrap(
-                          spacing: 12,
-                          children: controller.tagList.map((option) {
-                            return FilterButton(
-                              text: option.tag,
-                              selected: controller.filterMode.value == option,
-                              onTap: () {
-                                controller.setFilterMode(option);
-                              },
-                            );
-                          }).toList()),
-                    ),
+            padding: AppStyle.edgeInsetsH8,
+            child: Obx(
+              () => Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text("按状态"),
+                    selected: controller.groupMode.value ==
+                        FollowGroupMode.liveStatus,
+                    onSelected: (_) {
+                      controller.setGroupMode(FollowGroupMode.liveStatus);
+                    },
                   ),
+                  AppStyle.hGap8,
+                  ChoiceChip(
+                    label: const Text("按平台"),
+                    selected:
+                        controller.groupMode.value == FollowGroupMode.platform,
+                    onSelected: (_) {
+                      controller.setGroupMode(FollowGroupMode.platform);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: AppStyle.edgeInsetsA8.copyWith(top: 4),
+            child: Obx(
+              () => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Wrap(
+                  spacing: 12,
+                  children: controller.groupOptions.map((option) {
+                    return FilterButton(
+                      text: option.title,
+                      selected: controller.selectedGroupId.value == option.id,
+                      onTap: () {
+                        controller.setGroupOption(option);
+                      },
+                    );
+                  }).toList(),
                 ),
-              ],
+              ),
             ),
           ),
           Expanded(
@@ -159,6 +180,9 @@ class FollowUserPage extends GetView<FollowUserController> {
                 var site = Sites.allSites[item.siteId]!;
                 return FollowUserItem(
                   item: item,
+                  onSpecialTap: () {
+                    controller.toggleSpecialFollow(item);
+                  },
                   onRemove: () {
                     controller.removeItem(item);
                   },
@@ -184,10 +208,12 @@ class FollowUserPage extends GetView<FollowUserController> {
       controller.tagList.first,
       ...controller.tagList.skip(3),
     ];
-    Rx<FollowUserTag> checkTag =
-        controller.tagList.indexOf(controller.filterMode.value) < 3
-            ? copiedList.first.obs
-            : controller.filterMode.value.obs;
+    Rx<FollowUserTag> checkTag = copiedList
+        .firstWhere(
+          (tag) => tag.tag == item.tag,
+          orElse: () => copiedList.first,
+        )
+        .obs;
     final ScrollController scrollController = ScrollController();
     Get.dialog(
       AlertDialog(
