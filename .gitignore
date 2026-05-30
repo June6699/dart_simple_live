@@ -25,7 +25,6 @@ tmp_typora_skill_test_v5/
 # doc
 *.md
 !README.md
-!Update.md
 !RELEASE_BUILD_FLOW.md
 !**/README.md
 

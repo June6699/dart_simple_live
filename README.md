@@ -95,8 +95,6 @@ TV 下载建议：
 
 百度网盘镜像：[点击下载字幕模型](https://pan.baidu.com/s/17ToLCOaK71zkl1s6c8ZKpg?pwd=6699)，提取码：`6699`。网盘里包含 `advanced-whisper-large-v3-int8` 等 3 个模型文件夹，下载自己需要的档位即可。
 
-本地开发机已把三档模型缓存到 `C:\softwares\dart_simple_live\models`，该目录不会提交到 git。
-
 使用方式：选一个档位，下载该档位列出的全部文件，放到同一个文件夹；App 里选择这个文件夹。不要下载 `.weights`、无 `int8` 的 `.onnx`、`test_wavs` 测试音频。
 
 - 甜点级（先试这个）：Streaming Zipformer bilingual zh-en int8，体积较小。下载 `encoder-epoch-99-avg-1.int8.onnx`、`decoder-epoch-99-avg-1.int8.onnx`、`joiner-epoch-99-avg-1.int8.onnx`、`tokens.txt`、`bpe.model`、`bpe.vocab`。
