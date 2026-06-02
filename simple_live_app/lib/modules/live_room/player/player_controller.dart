@@ -1079,7 +1079,10 @@ mixin PlayerGestureControlMixin
 
   Future _realSetVolume(int volume) async {
     Log.logPrint(volume);
-    await setSessionPlayerVolume(volume.toDouble());
+    // Only adjust system volume here to avoid double-attenuation
+    // (effective loudness = system_volume × player_volume).
+    // The player volume is already set to 100 on room entry so system
+    // volume is the single source of truth for gesture / hardware buttons.
     await VolumeController.instance.setVolume(volume / 100);
   }
 
@@ -1132,8 +1135,9 @@ class PlayerController extends BaseController
   void onInit() {
     initSystem();
     initStream();
-    //设置音量
-    player.setVolume(AppSettingsController.instance.playerVolume.value);
+    // 设置音量：player 内部音量固定 100，实际音量由系统音量控制
+    // 避免 player volume × system volume 双重衰减导致手势调音量异常
+    player.setVolume(100);
     super.onInit();
   }
 
