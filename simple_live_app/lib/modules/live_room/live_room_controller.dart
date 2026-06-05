@@ -1195,8 +1195,11 @@ class LiveRoomController extends PlayerController
   void loadData() async {
     final loadGeneration = ++_loadGeneration;
     final loadStopwatch = Stopwatch()..start();
+    final showGlobalLoading = !Platform.isWindows;
     try {
-      SmartDialog.showLoading(msg: "");
+      if (showGlobalLoading) {
+        SmartDialog.showLoading(msg: "");
+      }
       loadError.value = false;
       error = null;
       errorStackTrace = null;
@@ -1292,7 +1295,7 @@ class LiveRoomController extends PlayerController
       error = e;
       errorStackTrace = stackTrace;
     } finally {
-      if (_isCurrentLoad(loadGeneration)) {
+      if (showGlobalLoading && _isCurrentLoad(loadGeneration)) {
         SmartDialog.dismiss(status: SmartStatus.loading);
       }
       loadStopwatch.stop();
