@@ -23,6 +23,7 @@ fix-guide.md
 # doc
 *.md
 !README.md
+!THANKS.md
 !RELEASE_BUILD_FLOW.md
 !**/README.md
 Update.md
