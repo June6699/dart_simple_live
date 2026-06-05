@@ -43,9 +43,14 @@ class DouyinDanmaku implements LiveDanmaku {
   String serverUrl = "wss://webcast3-ws-web-lq.douyin.com/webcast/im/push/v2/";
   late DouyinDanmakuArgs danmakuArgs;
   WebScoketUtils? webScoketUtils;
+  final List<LiveMessage> _pendingChatMessages = <LiveMessage>[];
+  Timer? _flushChatTimer;
+  static const int _maxChatFlushBatch = 50;
+  static const Duration _chatFlushInterval = Duration(milliseconds: 80);
 
   @override
   Future start(dynamic args) async {
+    final startStopwatch = Stopwatch()..start();
     danmakuArgs = args as DouyinDanmakuArgs;
     var ts = DateTime.now().millisecondsSinceEpoch;
     var uri = Uri.parse(serverUrl).replace(
@@ -89,7 +94,12 @@ class DouyinDanmaku implements LiveDanmaku {
       },
     );
 
+    final signStopwatch = Stopwatch()..start();
     var sign = DouyinSign.getSignature(danmakuArgs.roomId, danmakuArgs.userId);
+    signStopwatch.stop();
+    CoreLog.i(
+      "[DouyinDanmaku] getSignature 耗时 ${signStopwatch.elapsedMilliseconds}ms",
+    );
 
     var url = "$uri&signature=$sign";
     var backupUrl = url.replaceAll("webcast3-ws-web-lq", "webcast5-ws-web-lf");
@@ -98,7 +108,7 @@ class DouyinDanmaku implements LiveDanmaku {
       url.replaceAll("webcast3-ws-web-lq", "webcast3-ws-web-hl"),
       url.replaceAll("webcast3-ws-web-lq", "webcast3-ws-web-lf"),
     ];
-    print(url);
+    CoreLog.d("[DouyinDanmaku] 连接弹幕服务器: ${danmakuArgs.webRid}");
     webScoketUtils = WebScoketUtils(
       url: url,
       backupUrl: backupUrl,
@@ -132,6 +142,10 @@ class DouyinDanmaku implements LiveDanmaku {
       },
     );
     webScoketUtils?.connect();
+    startStopwatch.stop();
+    CoreLog.i(
+      "[DouyinDanmaku] start(${danmakuArgs.webRid}) 耗时 ${startStopwatch.elapsedMilliseconds}ms",
+    );
   }
 
   @override
@@ -143,6 +157,9 @@ class DouyinDanmaku implements LiveDanmaku {
 
   void decodeMessage(args) {
     // CoreLog.i(args.toString());
+    final stopwatch = Stopwatch()..start();
+    var messageCount = 0;
+    var chatCount = 0;
 
     var wssPackage = PushFrame.fromBuffer(args);
 
@@ -154,15 +171,26 @@ class DouyinDanmaku implements LiveDanmaku {
       //return;
     }
     for (var msg in payloadPackage.messagesList) {
+      messageCount++;
       if (msg.method == 'WebcastChatMessage') {
-        unPackWebcastChatMessage(msg.payload);
+        final liveMessage = unPackWebcastChatMessage(msg.payload);
+        if (liveMessage != null) {
+          chatCount++;
+          _enqueueChatMessage(liveMessage);
+        }
       } else if (msg.method == 'WebcastRoomUserSeqMessage') {
         unPackWebcastRoomUserSeqMessage(msg.payload);
       }
     }
+    stopwatch.stop();
+    if (stopwatch.elapsedMilliseconds >= 16 || chatCount >= 20) {
+      CoreLog.i(
+        "[DouyinDanmaku] decodeMessage 耗时 ${stopwatch.elapsedMilliseconds}ms messages=$messageCount chats=$chatCount",
+      );
+    }
   }
 
-  void unPackWebcastChatMessage(List<int> payload) {
+  LiveMessage? unPackWebcastChatMessage(List<int> payload) {
     var chatMessage = ChatMessage.fromBuffer(payload);
     final spans = _extractRtfSpans(chatMessage);
     if (spans.isEmpty) {
@@ -173,20 +201,46 @@ class DouyinDanmaku implements LiveDanmaku {
         .map((item) => item.imageUrl!.trim())
         .toList();
     final message = _buildChatMessageText(chatMessage, spans);
-    onMessage?.call(
-      LiveMessage(
-        type: LiveMessageType.chat,
-        color: LiveMessageColor.white,
-        //暂不知道具体怎么转换颜色
-        // color: chatMessage.common.fullScreenTextColor.
-        //     ? LiveMessageColor.white
-        //     : LiveMessageColor.numberToColor(color),
-        message: message,
-        userName: chatMessage.user.nickName,
-        imageUrls: imageUrls.isEmpty ? null : imageUrls,
-        spans: spans.isEmpty ? null : spans,
-      ),
+    return LiveMessage(
+      type: LiveMessageType.chat,
+      color: LiveMessageColor.white,
+      //暂不知道具体怎么转换颜色
+      // color: chatMessage.common.fullScreenTextColor.
+      //     ? LiveMessageColor.white
+      //     : LiveMessageColor.numberToColor(color),
+      message: message,
+      userName: chatMessage.user.nickName,
+      imageUrls: imageUrls.isEmpty ? null : imageUrls,
+      spans: spans.isEmpty ? null : spans,
     );
+  }
+
+  void _enqueueChatMessage(LiveMessage message) {
+    _pendingChatMessages.add(message);
+    if (_pendingChatMessages.length >= _maxChatFlushBatch) {
+      _flushChatTimer ??= Timer(Duration.zero, _flushChatMessages);
+      return;
+    }
+    _flushChatTimer ??= Timer(_chatFlushInterval, _flushChatMessages);
+  }
+
+  void _flushChatMessages() {
+    _flushChatTimer?.cancel();
+    _flushChatTimer = null;
+    if (_pendingChatMessages.isEmpty) {
+      return;
+    }
+    final batchSize = _pendingChatMessages.length > _maxChatFlushBatch
+        ? _maxChatFlushBatch
+        : _pendingChatMessages.length;
+    final batch = _pendingChatMessages.sublist(0, batchSize);
+    _pendingChatMessages.removeRange(0, batchSize);
+    for (final message in batch) {
+      onMessage?.call(message);
+    }
+    if (_pendingChatMessages.isNotEmpty) {
+      _flushChatTimer = Timer(_chatFlushInterval, _flushChatMessages);
+    }
   }
 
   String _buildChatMessageText(
@@ -325,6 +379,9 @@ class DouyinDanmaku implements LiveDanmaku {
 
   @override
   Future stop() async {
+    _flushChatTimer?.cancel();
+    _flushChatTimer = null;
+    _pendingChatMessages.clear();
     onMessage = null;
     onClose = null;
     onReady = null;

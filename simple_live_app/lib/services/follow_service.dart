@@ -16,6 +16,7 @@ import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
+import 'package:simple_live_app/services/bulk_data_import_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/live_notification_service.dart';
 
@@ -23,6 +24,7 @@ class FollowService extends GetxService {
   static const Duration updateStatusCooldown = Duration(seconds: 30);
   StreamSubscription<dynamic>? subscription;
   static FollowService get instance => Get.find<FollowService>();
+  Timer? _eventReloadTimer;
 
   final StreamController _updatedListController = StreamController.broadcast();
   Stream get updatedListStream => _updatedListController.stream;
@@ -54,7 +56,10 @@ class FollowService extends GetxService {
   @override
   void onInit() {
     subscription = EventBus.instance.listen(Constant.kUpdateFollow, (p0) {
-      loadData(updateStatus: false);
+      _eventReloadTimer?.cancel();
+      _eventReloadTimer = Timer(const Duration(milliseconds: 150), () {
+        loadData(updateStatus: false);
+      });
     });
     initTimer();
     super.onInit();
@@ -168,22 +173,20 @@ class FollowService extends GetxService {
     }
   }
 
-  /// 获取最优并发数
-  /// 根据 CPU 核心数和用户设置自动计算
-  int getOptimalConcurrency() {
-    var userSetting =
-        AppSettingsController.instance.updateFollowThreadCount.value;
-
-    // 如果用户设置为 0，则自动根据 CPU 核心数计算
-    if (userSetting == 0) {
-      var cpuCount = Platform.numberOfProcessors;
-      // 网络 I/O 密集型任务，并发数可以是 CPU 核心数的 2-3 倍
-      var optimal = (cpuCount * 2.5).round();
-      // 限制在合理范围内（最少 4，最多 20）
-      return optimal.clamp(4, 20);
+  /// 获取最优并发数。
+  /// 后台按关注规模自动控制，不再读取用户配置，避免超大关注列表刷崩。
+  int getOptimalConcurrency({int? totalCount}) {
+    final count = totalCount ?? followList.length;
+    if (count <= 200) {
+      return 32;
     }
-
-    return userSetting.clamp(1, 20);
+    if (count <= 800) {
+      return 20;
+    }
+    if (count <= 2000) {
+      return 12;
+    }
+    return 8;
   }
 
   /// 按平台交错排列，避免单一平台阻塞
@@ -225,9 +228,12 @@ class FollowService extends GetxService {
     }
     updating.value = true;
 
-    var concurrency = getOptimalConcurrency();
+    var concurrency = getOptimalConcurrency(totalCount: followList.length);
+    final policy = BulkDataImportService.policyForCount(followList.length);
 
-    Log.logPrint("开始更新关注状态，并发数: $concurrency，总数: ${followList.length}");
+    Log.logPrint(
+      "开始更新关注状态，并发数: $concurrency，总数: ${followList.length}，规模: ${policy.label}",
+    );
 
     // 按平台交错排列，避免单一平台阻塞
     var interleavedList = interleaveByPlatform(followList);
@@ -500,36 +506,15 @@ class FollowService extends GetxService {
     if (data is! List) {
       throw const FormatException("关注列表格式不是数组");
     }
-
-    final follows = <FollowUser>[];
-    final tagMap = {
-      for (final tag in DBService.instance.getFollowTagList()) tag.tag: tag,
-    };
-    for (var item in data) {
-      if (item is! Map) {
-        continue;
-      }
-      var follow = FollowUser.fromJson(Map<String, dynamic>.from(item));
-      if (follow.id.isEmpty || follow.roomId.isEmpty || follow.siteId.isEmpty) {
-        continue;
-      }
-      follows.add(follow);
-      // 导入关注列表同时导入标签列表 此方法可优化为所有导入逻辑
-      if (follow.tag != "全部") {
-        var tag = tagMap[follow.tag];
-        if (tag == null) {
-          tag = await DBService.instance.addFollowTag(follow.tag);
-          tagMap[follow.tag] = tag;
-        }
-        // 更新tag
-        tag.userId.addIf(!tag.userId.contains(follow.id), follow.id);
-      }
-    }
-    await DBService.instance.addFollows(follows);
-    await DBService.instance.tagBox.putAll({
-      for (final tag in tagMap.values.where((tag) => tag.tag != "全部"))
-        tag.id: tag,
-    });
+    final stopwatch = Stopwatch()..start();
+    final result = await BulkDataImportService.importFollowUsers(
+      data,
+      syncTagsFromUserField: true,
+    );
+    stopwatch.stop();
+    Log.i(
+      "文本/文件关注导入完成：${result.logSummary} elapsed=${stopwatch.elapsedMilliseconds}ms",
+    );
   }
 
   @override
@@ -537,6 +522,7 @@ class FollowService extends GetxService {
     _updateGeneration++;
     updating.value = false;
     updateTimer?.cancel();
+    _eventReloadTimer?.cancel();
     subscription?.cancel();
     super.onClose();
   }

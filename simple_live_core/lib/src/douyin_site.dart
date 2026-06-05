@@ -25,6 +25,9 @@ class DouyinSite implements LiveSite {
 
   static const String kDefaultAuthority = "live.douyin.com";
   static DateTime? _lastRoomDetailRequestAt;
+  static const Duration _webCookieCacheTtl = Duration(minutes: 5);
+  static final Map<String, String> _webCookieCache = <String, String>{};
+  static final Map<String, DateTime> _webCookieCacheAt = <String, DateTime>{};
 
   /// 默认 Cookie - 只需要 ttwid 字段即可获取所有画质（包括蓝光）
   /// 经过测试验证，LOGIN_STATUS=1 等其他字段都是可选的
@@ -38,6 +41,11 @@ class DouyinSite implements LiveSite {
     // 同时使用 print 和 CoreLog 确保日志输出
     print("[Douyin] $msg");
     CoreLog.d("[Douyin] $msg");
+  }
+
+  void _logElapsed(String label, Stopwatch stopwatch) {
+    stopwatch.stop();
+    _logDebug("$label 耗时 ${stopwatch.elapsedMilliseconds}ms");
   }
 
   Map<String, dynamic> headers = {
@@ -67,19 +75,23 @@ class DouyinSite implements LiveSite {
   }
 
   Future<String> _getDanmakuCookie(String webRid) async {
+    final stopwatch = Stopwatch()..start();
     final requestHeaders = await getRequestHeaders();
     final baseCookie = requestHeaders["cookie"]?.toString() ?? "";
     try {
       final webCookie = await _getWebCookie(
         webRid,
       ).timeout(const Duration(seconds: 5));
-      return _mergeCookieValues(
+      final merged = _mergeCookieValues(
         baseCookie,
         webCookie,
         preferBase: cookie.isNotEmpty,
       );
+      _logElapsed("_getDanmakuCookie($webRid)", stopwatch);
+      return merged;
     } catch (e) {
       CoreLog.error(e);
+      _logElapsed("_getDanmakuCookie($webRid) fallback", stopwatch);
       return baseCookie;
     }
   }
@@ -472,19 +484,24 @@ class DouyinSite implements LiveSite {
 
   @override
   Future<LiveRoomDetail> getRoomDetail({required String roomId}) async {
+    final stopwatch = Stopwatch()..start();
     await _throttleRoomDetailRequest();
-    // 有两种roomId，一种是webRid，一种是roomId
-    // roomId是一次性的，用户每次重新开播都会生成一个新的roomId
-    // roomId一般长度为19位，例如：7376429659866598196
-    // webRid是固定的，用户每次开播都是同一个webRid
-    // webRid一般长度为11-12位，例如：416144012050
-    // 这里简单进行判断，如果roomId长度小于15，则认为是webRid
-    if (roomId.length <= 16) {
-      var webRid = roomId;
-      return await getRoomDetailByWebRid(webRid);
-    }
+    try {
+      // 有两种roomId，一种是webRid，一种是roomId
+      // roomId是一次性的，用户每次重新开播都会生成一个新的roomId
+      // roomId一般长度为19位，例如：7376429659866598196
+      // webRid是固定的，用户每次开播都是同一个webRid
+      // webRid一般长度为11-12位，例如：416144012050
+      // 这里简单进行判断，如果roomId长度小于15，则认为是webRid
+      if (roomId.length <= 16) {
+        var webRid = roomId;
+        return await getRoomDetailByWebRid(webRid);
+      }
 
-    return await getRoomDetailByRoomId(roomId);
+      return await getRoomDetailByRoomId(roomId);
+    } finally {
+      _logElapsed("getRoomDetail($roomId)", stopwatch);
+    }
   }
 
   Future<void> _throttleRoomDetailRequest() async {
@@ -504,6 +521,7 @@ class DouyinSite implements LiveSite {
   /// - [roomId] 直播间ID
   /// - 返回直播间信息
   Future<LiveRoomDetail> getRoomDetailByRoomId(String roomId) async {
+    final stopwatch = Stopwatch()..start();
     // 读取房间信息
     var roomData = await _getRoomDataByRoomId(roomId);
     final room = roomData["data"]?["room"];
@@ -528,6 +546,7 @@ class DouyinSite implements LiveSite {
     // 所以如果roomId对应的直播间状态不是直播中，就通过webRid获取直播间信息
     if (status == 4) {
       var result = await getRoomDetailByWebRid(webRid);
+      _logElapsed("getRoomDetailByRoomId($roomId) redirect", stopwatch);
       return result;
     }
 
@@ -535,7 +554,7 @@ class DouyinSite implements LiveSite {
     // 主要是为了获取cookie,用于弹幕websocket连接
     var danmakuCookie = await _getDanmakuCookie(webRid);
 
-    return LiveRoomDetail(
+    final detail = LiveRoomDetail(
       roomId: webRid,
       title: room["title"].toString(),
       cover: roomStatus ? room["cover"]["url_list"][0].toString() : "",
@@ -561,14 +580,18 @@ class DouyinSite implements LiveSite {
       ),
       data: room["stream_url"],
     );
+    _logElapsed("getRoomDetailByRoomId($roomId)", stopwatch);
+    return detail;
   }
 
   /// 通过WebRid获取直播间信息
   /// - [webRid] 直播间RID
   /// - 返回直播间信息
   Future<LiveRoomDetail> getRoomDetailByWebRid(String webRid) async {
+    final stopwatch = Stopwatch()..start();
     try {
       var result = await _getRoomDetailByWebRidApi(webRid);
+      _logElapsed("getRoomDetailByWebRid($webRid) api", stopwatch);
       return result;
     } catch (e) {
       CoreLog.error(e);
@@ -576,13 +599,16 @@ class DouyinSite implements LiveSite {
         rethrow;
       }
     }
-    return await _getRoomDetailByWebRidHtml(webRid);
+    final result = await _getRoomDetailByWebRidHtml(webRid);
+    _logElapsed("getRoomDetailByWebRid($webRid) html", stopwatch);
+    return result;
   }
 
   /// 通过WebRid访问直播间API，从API中获取直播间信息
   /// - [webRid] 直播间RID
   /// - 返回直播间信息
   Future<LiveRoomDetail> _getRoomDetailByWebRidApi(String webRid) async {
+    final stopwatch = Stopwatch()..start();
     // 读取房间信息
     var data = await _getRoomDataByApi(webRid);
 
@@ -602,7 +628,7 @@ class DouyinSite implements LiveSite {
 
     // 主要是为了获取cookie,用于弹幕websocket连接
     var danmakuCookie = await _getDanmakuCookie(webRid);
-    return LiveRoomDetail(
+    final detail = LiveRoomDetail(
       roomId: webRid,
       title: roomData["title"].toString(),
       cover: roomStatus ? roomData["cover"]["url_list"][0].toString() : "",
@@ -632,12 +658,15 @@ class DouyinSite implements LiveSite {
       ),
       data: roomStatus ? roomData["stream_url"] : {},
     );
+    _logElapsed("_getRoomDetailByWebRidApi($webRid)", stopwatch);
+    return detail;
   }
 
   /// 通过WebRid访问直播间网页，从网页HTML中获取直播间信息
   /// - [webRid] 直播间RID
   /// - 返回直播间信息
   Future<LiveRoomDetail> _getRoomDetailByWebRidHtml(String webRid) async {
+    final stopwatch = Stopwatch()..start();
     var roomData = await _getRoomDataByHtml(webRid);
     var roomId = roomData["roomStore"]["roomInfo"]["room"]["id_str"].toString();
     var userUniqueId = roomData["userStore"]["odin"]["user_unique_id"]
@@ -652,7 +681,7 @@ class DouyinSite implements LiveSite {
     // 主要是为了获取cookie,用于弹幕websocket连接
     var danmakuCookie = await _getDanmakuCookie(webRid);
 
-    return LiveRoomDetail(
+    final detail = LiveRoomDetail(
       roomId: webRid,
       title: room["title"].toString(),
       cover: roomStatus ? room["cover"]["url_list"][0].toString() : "",
@@ -682,6 +711,8 @@ class DouyinSite implements LiveSite {
       ),
       data: roomStatus ? room["stream_url"] : {},
     );
+    _logElapsed("_getRoomDetailByWebRidHtml($webRid)", stopwatch);
+    return detail;
   }
 
   /// 读取用户的唯一ID
@@ -701,6 +732,16 @@ class DouyinSite implements LiveSite {
   Future<String> _getWebCookie(String webRid) async {
     final requestHeaders = Map<String, dynamic>.from(await getRequestHeaders());
     final baseCookie = _getCookieHeaderValue(requestHeaders);
+    final cacheKey = "$webRid|${baseCookie.hashCode}";
+    final cachedAt = _webCookieCacheAt[cacheKey];
+    final cachedValue = _webCookieCache[cacheKey];
+    if (cachedAt != null &&
+        cachedValue != null &&
+        DateTime.now().difference(cachedAt) < _webCookieCacheTtl) {
+      _logDebug("_getWebCookie($webRid) 使用缓存");
+      return cachedValue;
+    }
+    final stopwatch = Stopwatch()..start();
     requestHeaders["Referer"] = "https://live.douyin.com/$webRid";
     dynamic headResp;
     try {
@@ -711,6 +752,9 @@ class DouyinSite implements LiveSite {
     } catch (e) {
       if (baseCookie.isNotEmpty) {
         _logDebug("获取直播间 Web Cookie 的 HEAD 请求失败，使用已保存 Cookie 继续：$e");
+        _webCookieCache[cacheKey] = baseCookie;
+        _webCookieCacheAt[cacheKey] = DateTime.now();
+        _logElapsed("_getWebCookie($webRid) fallback", stopwatch);
         return baseCookie;
       }
       rethrow;
@@ -734,13 +778,18 @@ class DouyinSite implements LiveSite {
         dyCookie += "$cookie;";
       }
     });
+    _webCookieCache[cacheKey] = dyCookie;
+    _webCookieCacheAt[cacheKey] = DateTime.now();
+    _logElapsed("_getWebCookie($webRid)", stopwatch);
     return dyCookie;
   }
 
   /// 通过webRid获取直播间Web信息
   /// - [webRid] 直播间RID
   Future<Map> _getRoomDataByHtml(String webRid) async {
+    final stopwatch = Stopwatch()..start();
     var dyCookie = await _getWebCookie(webRid);
+    final requestStopwatch = Stopwatch()..start();
     var result = await HttpClient.instance.getText(
       "https://live.douyin.com/$webRid",
       queryParameters: {},
@@ -751,6 +800,8 @@ class DouyinSite implements LiveSite {
         "User-Agent": kDefaultUserAgent,
       },
     );
+    _logElapsed("_getRoomDataByHtml($webRid) request", requestStopwatch);
+    final parseStopwatch = Stopwatch()..start();
     if (result.trim().isEmpty) {
       throw CoreError("抖音直播间页面返回为空，请稍后再试");
     }
@@ -776,12 +827,15 @@ class DouyinSite implements LiveSite {
     if (state is! Map) {
       throw CoreError("抖音直播间页面状态数据异常");
     }
+    _logElapsed("_getRoomDataByHtml($webRid) parse", parseStopwatch);
+    _logElapsed("_getRoomDataByHtml($webRid)", stopwatch);
     return state;
   }
 
   /// 通过webRid获取直播间Web信息
   /// - [webRid] 直播间RID
   Future<Map> _getRoomDataByApi(String webRid) async {
+    final stopwatch = Stopwatch()..start();
     String serverUrl = "https://live.douyin.com/webcast/room/web/enter/";
 
     // 提前获取 headers
@@ -807,12 +861,16 @@ class DouyinSite implements LiveSite {
         "msToken": "",
       },
     );
+    final signStopwatch = Stopwatch()..start();
     var requestUrl = DouyinSign.getAbogusUrl(uri.toString(), kDefaultUserAgent);
+    _logElapsed("_getRoomDataByApi($webRid) a_bogus", signStopwatch);
 
+    final requestStopwatch = Stopwatch()..start();
     var result = await HttpClient.instance.getJson(
       requestUrl,
       header: requestHeader,
     );
+    _logElapsed("_getRoomDataByApi($webRid) request", requestStopwatch);
 
     if (result is! Map) {
       throw Exception("抖音接口返回格式异常");
@@ -827,6 +885,7 @@ class DouyinSite implements LiveSite {
       throw CoreError("抖音直播间数据为空，可能是房间不存在、未开播或被风控限制");
     }
 
+    _logElapsed("_getRoomDataByApi($webRid)", stopwatch);
     return data;
   }
 
@@ -852,6 +911,7 @@ class DouyinSite implements LiveSite {
   Future<List<LivePlayQuality>> getPlayQualites({
     required LiveRoomDetail detail,
   }) async {
+    final stopwatch = Stopwatch()..start();
     List<LivePlayQuality> qualities = [];
 
     try {
@@ -938,6 +998,7 @@ class DouyinSite implements LiveSite {
 
     qualities.sort((a, b) => b.sort.compareTo(a.sort));
     _logDebug("获取到的画质列表: ${qualities.map((q) => q.quality).toList()}");
+    _logElapsed("getPlayQualites(${detail.roomId})", stopwatch);
     return qualities;
   }
 
@@ -946,8 +1007,11 @@ class DouyinSite implements LiveSite {
     required LiveRoomDetail detail,
     required LivePlayQuality quality,
   }) async {
+    final stopwatch = Stopwatch()..start();
     // 返回列表的副本，防止外部 clear() 影响原始数据
-    return LivePlayUrl(urls: List<String>.from(quality.data));
+    final result = LivePlayUrl(urls: List<String>.from(quality.data));
+    _logElapsed("getPlayUrls(${detail.roomId}, ${quality.quality})", stopwatch);
+    return result;
   }
 
   @override

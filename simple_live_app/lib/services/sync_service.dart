@@ -6,15 +6,11 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:simple_live_app/app/constant.dart';
-import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
-import 'package:simple_live_app/models/db/follow_user.dart';
-import 'package:simple_live_app/models/db/follow_user_tag.dart';
-import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
-import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/bulk_data_import_service.dart';
 import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/profile_backup_service.dart';
 import 'package:udp/udp.dart';
@@ -256,32 +252,21 @@ class SyncService extends GetxService {
           int.parse(request.requestedUri.queryParameters['overlay'] ?? '0');
 
       var body = await request.readAsString();
-      Log.d('_syncFollowUserReuqest: ${body.length} bytes');
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(body);
       if (jsonBody is! List) {
         throw const FormatException("关注列表格式不是数组");
       }
-      final users = <FollowUser>[];
-      for (var item in jsonBody) {
-        try {
-          if (item is Map) {
-            final user = FollowUser.fromJson(Map<String, dynamic>.from(item));
-            if (user.id.isNotEmpty &&
-                user.roomId.isNotEmpty &&
-                user.siteId.isNotEmpty) {
-              users.add(user);
-            }
-          }
-        } catch (e) {
-          Log.d("跳过异常关注项: $e");
-        }
-      }
-      if (overlay == 1) {
-        await DBService.instance.followBox.clear();
-      }
-      await DBService.instance.addFollows(users);
+      final result = await BulkDataImportService.importFollowUsers(
+        jsonBody,
+        overwrite: overlay == 1,
+      );
+      stopwatch.stop();
+      Log.i(
+        "本地同步关注完成：${result.logSummary} bytes=${body.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
 
-      SmartDialog.showToast('已同步关注用户列表（${users.length} 条）');
+      SmartDialog.showToast('已同步关注用户列表（${result.imported} 条）');
       EventBus.instance.emit(Constant.kUpdateFollow, 0);
       return toJsonResponse({
         'status': true,
@@ -303,34 +288,21 @@ class SyncService extends GetxService {
           int.parse(request.requestedUri.queryParameters['overlay'] ?? '0');
 
       var body = await request.readAsString();
-      Log.d('_syncFollowUserTagRequest: ${body.length} bytes');
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(body);
       if (jsonBody is! List) {
         throw const FormatException("标签列表格式不是数组");
       }
-      final tags = <FollowUserTag>[];
-      for (var item in jsonBody) {
-        try {
-          if (item is Map) {
-            final tag = FollowUserTag.fromJson(
-              Map<String, dynamic>.from(item),
-            );
-            if (tag.id.isNotEmpty) {
-              tags.add(tag);
-            }
-          }
-        } catch (e) {
-          Log.d("跳过异常标签项: $e");
-        }
-      }
-      if (overlay == 1) {
-        await DBService.instance.tagBox.clear();
-      }
-      await DBService.instance.tagBox.putAll({
-        for (final tag in tags) tag.id: tag,
-      });
+      final result = await BulkDataImportService.importFollowTags(
+        jsonBody,
+        overwrite: overlay == 1,
+      );
+      stopwatch.stop();
+      Log.i(
+        "本地同步标签完成：${result.logSummary} bytes=${body.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
 
-      SmartDialog.showToast('已同步标签列表（${tags.length} 条）');
+      SmartDialog.showToast('已同步标签列表（${result.imported} 条）');
       EventBus.instance.emit(Constant.kUpdateFollow, 0);
       return toJsonResponse({
         'status': true,
@@ -350,41 +322,21 @@ class SyncService extends GetxService {
       var overlay =
           int.parse(request.requestedUri.queryParameters['overlay'] ?? '0');
       var body = await request.readAsString();
-      Log.d('_syncFollowUserReuqest: $body');
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(body);
       if (jsonBody is! List) {
         throw const FormatException("历史记录格式不是数组");
       }
-      final histories = <History>[];
-      for (var item in jsonBody) {
-        try {
-          if (item is Map) {
-            final history = History.fromJson(Map<String, dynamic>.from(item));
-            if (history.id.isNotEmpty &&
-                history.roomId.isNotEmpty &&
-                history.siteId.isNotEmpty) {
-              histories.add(history);
-            }
-          }
-        } catch (e) {
-          Log.d("跳过异常历史项: $e");
-        }
-      }
-      if (overlay == 1) {
-        await DBService.instance.historyBox.clear();
-      }
-      for (var history in histories) {
-        if (DBService.instance.historyBox.containsKey(history.id)) {
-          var old = DBService.instance.historyBox.get(history.id);
-          //如果本地的更新时间比较新，就不更新
-          if (old!.updateTime.isAfter(history.updateTime)) {
-            continue;
-          }
-        }
-        await DBService.instance.addOrUpdateHistory(history);
-      }
+      final result = await BulkDataImportService.importHistories(
+        jsonBody,
+        overwrite: overlay == 1,
+      );
+      stopwatch.stop();
+      Log.i(
+        "本地同步历史完成：${result.logSummary} bytes=${body.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
 
-      SmartDialog.showToast('已同步观看记录');
+      SmartDialog.showToast('已同步观看记录（${result.imported} 条）');
       EventBus.instance.emit(Constant.kUpdateHistory, 0);
       return toJsonResponse({
         'status': true,
@@ -404,19 +356,20 @@ class SyncService extends GetxService {
       var overlay =
           int.parse(request.requestedUri.queryParameters['overlay'] ?? '0');
       var body = await request.readAsString();
-      Log.d('_syncBlockedWordReuqest: $body');
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(body);
       if (jsonBody is! List) {
         throw const FormatException("屏蔽词格式不是数组");
       }
-      if (overlay == 1) {
-        await AppSettingsController.instance.clearShieldList();
-      }
-      for (var keyword in jsonBody) {
-        AppSettingsController.instance
-            .importShieldValue(keyword.toString().trim());
-      }
-      SmartDialog.showToast('已同步弹幕屏蔽词');
+      final result = await BulkDataImportService.importShieldValues(
+        jsonBody,
+        overwrite: overlay == 1,
+      );
+      stopwatch.stop();
+      Log.i(
+        "本地同步屏蔽词完成：${result.logSummary} bytes=${body.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
+      SmartDialog.showToast('已同步弹幕屏蔽词（${result.imported} 条）');
       return toJsonResponse({
         'status': true,
         'message': 'success',

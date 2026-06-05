@@ -6,9 +6,7 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/utils.dart';
-import 'package:simple_live_app/models/db/follow_user.dart';
-import 'package:simple_live_app/models/db/follow_user_tag.dart';
-import 'package:simple_live_app/models/db/history.dart';
+import 'package:simple_live_app/services/bulk_data_import_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/live_subtitle_service.dart';
@@ -370,10 +368,12 @@ class ProfileBackupService extends GetxService {
     if (rawShield is Map) {
       final rawValues = rawShield["raw"];
       if (rawValues is List && rawValues.isNotEmpty) {
-        for (final value in rawValues) {
-          AppSettingsControllerSafe.importShieldValue(value.toString());
-          summary.shields++;
-        }
+        final result = await BulkDataImportService.importShieldValues(
+          rawValues,
+          overwrite: false,
+        );
+        summary.shields += result.imported;
+        summary.skipped += result.skipped;
         return;
       }
       final keywords = rawShield["keywords"];
@@ -436,30 +436,12 @@ class ProfileBackupService extends GetxService {
     ProfileImportSummary summary,
     bool overwrite,
   ) async {
-    if (overwrite) {
-      await DBService.instance.followBox.clear();
-    }
-    if (rawUsers is! List) {
-      return;
-    }
-    final users = <FollowUser>[];
-    for (final item in rawUsers) {
-      if (item is! Map) {
-        continue;
-      }
-      try {
-        final user = FollowUser.fromJson(Map<String, dynamic>.from(item));
-        if (user.id.isEmpty || user.roomId.isEmpty || user.siteId.isEmpty) {
-          summary.skipped++;
-          continue;
-        }
-        users.add(user);
-        summary.followUsers++;
-      } catch (_) {
-        summary.skipped++;
-      }
-    }
-    await DBService.instance.addFollows(users);
+    final result = await BulkDataImportService.importFollowUsers(
+      rawUsers,
+      overwrite: overwrite,
+    );
+    summary.followUsers += result.imported;
+    summary.skipped += result.skipped;
   }
 
   Future<void> _importFollowTags(
@@ -467,32 +449,12 @@ class ProfileBackupService extends GetxService {
     ProfileImportSummary summary,
     bool overwrite,
   ) async {
-    if (overwrite) {
-      await DBService.instance.tagBox.clear();
-    }
-    if (rawTags is! List) {
-      return;
-    }
-    final tags = <FollowUserTag>[];
-    for (final item in rawTags) {
-      if (item is! Map) {
-        continue;
-      }
-      try {
-        final tag = FollowUserTag.fromJson(Map<String, dynamic>.from(item));
-        if (tag.id.isEmpty || tag.tag.isEmpty) {
-          summary.skipped++;
-          continue;
-        }
-        tags.add(tag);
-        summary.followTags++;
-      } catch (_) {
-        summary.skipped++;
-      }
-    }
-    await DBService.instance.tagBox.putAll({
-      for (final tag in tags) tag.id: tag,
-    });
+    final result = await BulkDataImportService.importFollowTags(
+      rawTags,
+      overwrite: overwrite,
+    );
+    summary.followTags += result.imported;
+    summary.skipped += result.skipped;
   }
 
   Future<void> _importHistories(
@@ -500,36 +462,12 @@ class ProfileBackupService extends GetxService {
     ProfileImportSummary summary,
     bool overwrite,
   ) async {
-    if (overwrite) {
-      await DBService.instance.historyBox.clear();
-    }
-    if (rawHistories is! List) {
-      return;
-    }
-    for (final item in rawHistories) {
-      if (item is! Map) {
-        continue;
-      }
-      try {
-        final history = History.fromJson(Map<String, dynamic>.from(item));
-        if (history.id.isEmpty ||
-            history.roomId.isEmpty ||
-            history.siteId.isEmpty) {
-          summary.skipped++;
-          continue;
-        }
-        final old = DBService.instance.historyBox.get(history.id);
-        if (!overwrite &&
-            old != null &&
-            old.updateTime.isAfter(history.updateTime)) {
-          continue;
-        }
-        await DBService.instance.addOrUpdateHistory(history);
-        summary.histories++;
-      } catch (_) {
-        summary.skipped++;
-      }
-    }
+    final result = await BulkDataImportService.importHistories(
+      rawHistories,
+      overwrite: overwrite,
+    );
+    summary.histories += result.imported;
+    summary.skipped += result.skipped;
   }
 
   dynamic _readPayloadList(Map<String, dynamic> payload, List<String> keys) {

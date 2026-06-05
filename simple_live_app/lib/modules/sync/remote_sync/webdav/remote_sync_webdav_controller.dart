@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:archive/archive_io.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -15,14 +14,9 @@ import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
-import 'package:simple_live_app/app/utils/archive.dart';
-import 'package:simple_live_app/app/utils/document.dart';
-import 'package:simple_live_app/models/db/follow_user.dart';
-import 'package:simple_live_app/models/db/follow_user_tag.dart';
-import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/webdav/webdav_client.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
-import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/bulk_data_import_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:simple_live_app/services/profile_backup_service.dart';
 
@@ -175,73 +169,64 @@ class RemoteSyncWebDAVController extends BaseController {
   Future<List<int>> _backupData() async {
     final archive = Archive();
     List<int> zipBytes = [];
-    // 获取本地备份路径
-    var dir = (await getApplicationSupportDirectory()).path;
-    var profile = Directory(join(dir, 'backup'));
-    if (!profile.existsSync()) {
-      profile.createSync();
-    }
     try {
-      // archive.add(filepath, data_map) 会导致文件损坏
+      final profileMap = ProfileBackupService.instance.exportProfileMap();
+      final profileJson =
+          const JsonEncoder.withIndent("  ").convert(profileMap);
       archive.addFile(
         ArchiveFile.string(
           _profileJsonName,
-          ProfileBackupService.instance.exportProfileJson(),
+          profileJson,
         ),
       );
-      // follows
-      var userFollowList = DBService.instance.getFollowList();
-      var dataFollowsMap = {
-        'data': userFollowList.map((e) => e.toJson()).toList()
-      };
-      final userFollowJsonFile = File(join(profile.path, _userFollowJsonName));
-      await userFollowJsonFile.writeAsString(jsonEncode(dataFollowsMap));
-      // 用户自定义标签
-      var userTagsList = DBService.instance.getFollowTagList();
-      var dataTagsMap = {'data': userTagsList.map((e) => e.toJson()).toList()};
-      var userTagsJsonFile = File(join(profile.path, _userTagsJsonName));
-      await userTagsJsonFile.writeAsString(jsonEncode(dataTagsMap));
-      // histories
-      var userHistoriesList = DBService.instance.getHistores();
-      var dataHistoriesMap = {
-        'data': userHistoriesList.map((e) => e.toJson()).toList()
-      };
-      final userHistoriesJsonFile =
-          File(join(profile.path, _userHistoriesJsonName));
-      await userHistoriesJsonFile.writeAsString(jsonEncode(dataHistoriesMap));
-
-      // blocked_word
-      var userShieldList = AppSettingsController.instance.allShieldValues;
-      var dataShieldListMap = {'data': userShieldList.toList()};
-      final userBlockedWordJsonFile =
-          File(join(profile.path, _userBlockedWordJsonName));
-      await userBlockedWordJsonFile
-          .writeAsString(jsonEncode(dataShieldListMap));
-
-      // bilibili_account
-      var userBiliAccountCookieMap = {
-        'data': {'cookie': BiliBiliAccountService.instance.cookie}
-      };
-      final bilibiliAccountJsonFile =
-          File(join(profile.path, _userBilibiliAccountJsonName));
-      await bilibiliAccountJsonFile
-          .writeAsString(jsonEncode(userBiliAccountCookieMap));
-      // settings
-      var settingList = LocalStorageService.instance.settingsBox.toMap();
-      var dataSettingListMap = {'data': settingList};
-      final settingJsonFile = File(join(profile.path, _userSettingsJsonName));
-      await settingJsonFile.writeAsString(jsonEncode(dataSettingListMap));
-
-      // 遍历profile路径下的所有文件压缩
-      await archive.addDirectoryToArchive(profile.path, profile.path);
+      _addJsonFile(
+        archive,
+        _userFollowJsonName,
+        {'data': profileMap['followUsers'] ?? const []},
+      );
+      _addJsonFile(
+        archive,
+        _userTagsJsonName,
+        {'data': profileMap['followUserTags'] ?? const []},
+      );
+      _addJsonFile(
+        archive,
+        _userHistoriesJsonName,
+        {'data': profileMap['histories'] ?? const []},
+      );
+      _addJsonFile(
+        archive,
+        _userBlockedWordJsonName,
+        {'data': AppSettingsController.instance.allShieldValues.toList()},
+      );
+      _addJsonFile(
+        archive,
+        _userBilibiliAccountJsonName,
+        {
+          'data': {'cookie': BiliBiliAccountService.instance.cookie}
+        },
+      );
+      _addJsonFile(
+        archive,
+        _userSettingsJsonName,
+        {'data': LocalStorageService.instance.settingsBox.toMap()},
+      );
       final zipEncoder = ZipEncoder();
       zipBytes = zipEncoder.encode(archive);
-      profile.clearSync();
     } catch (e) {
       Log.logPrint(e);
       SmartDialog.showToast("备份失败：$e");
     }
     return zipBytes;
+  }
+
+  void _addJsonFile(Archive archive, String name, Map<String, dynamic> data) {
+    archive.addFile(
+      ArchiveFile.string(
+        name,
+        jsonEncode(data),
+      ),
+    );
   }
 
   // webDAV恢复到本地
@@ -322,45 +307,31 @@ class RemoteSyncWebDAVController extends BaseController {
       var jsonData = json.decode(jsonString)['data'];
       // 同步follows
       if (file.name == _userFollowJsonName && isSyncFollows.value) {
-        // 当前云优先
         try {
-          // 清空本地关注列表
-          await DBService.instance.followBox.clear();
-          final users = <FollowUser>[];
-          for (var item in jsonData) {
-            var user = FollowUser.fromJson(item);
-            users.add(user);
-          }
-          await DBService.instance.addFollows(users);
-          Log.i('已同步关注用户列表');
+          final result = await BulkDataImportService.importFollowUsers(
+            jsonData,
+            overwrite: true,
+          );
+          EventBus.instance.emit(Constant.kUpdateFollow, 0);
+          Log.i('已同步关注用户列表：${result.logSummary}');
         } catch (e) {
           Log.e('同步关注用户列表失败: $e', StackTrace.current);
         }
       } else if (file.name == _userHistoriesJsonName && isSyncHistories.value) {
         try {
-          for (var item in jsonData) {
-            var history = History.fromJson(item);
-            if (DBService.instance.historyBox.containsKey(history.id)) {
-              var old = DBService.instance.historyBox.get(history.id);
-              //如果本地的更新时间比较新，就不更新
-              if (old!.updateTime.isAfter(history.updateTime)) {
-                continue;
-              }
-            }
-            await DBService.instance.addOrUpdateHistory(history);
-          }
-          Log.i('已同步用户观看历史记录');
+          final result = await BulkDataImportService.importHistories(jsonData);
+          EventBus.instance.emit(Constant.kUpdateHistory, 0);
+          Log.i('已同步用户观看历史记录：${result.logSummary}');
         } catch (e) {
           Log.e('同步用户观看历史记录失败: $e', StackTrace.current);
         }
       } else if (file.name == _userBlockedWordJsonName &&
           isSyncBlockWord.value) {
         try {
-          for (var keyword in jsonData) {
-            AppSettingsController.instance
-                .importShieldValue(keyword.toString().trim());
-          }
-          Log.i('已同步用户屏蔽词');
+          final result = await BulkDataImportService.importShieldValues(
+            jsonData,
+          );
+          Log.i('已同步用户屏蔽词：${result.logSummary}');
         } catch (e) {
           Log.e('同步用户屏蔽词失败:$e', StackTrace.current);
         }
@@ -385,19 +356,12 @@ class RemoteSyncWebDAVController extends BaseController {
         }
       } else if (file.name == _userTagsJsonName && isSyncFollows.value) {
         try {
-          // 标签功能和关注具有依赖关系，必须同时同步
-          // 清空本地标签列表
-          await DBService.instance.tagBox.clear();
-          final tags = <FollowUserTag>[];
-          for (var item in jsonData) {
-            var tag = FollowUserTag.fromJson(item);
-            tags.add(tag);
-          }
-          await DBService.instance.tagBox.putAll({
-            for (final tag in tags) tag.id: tag,
-          });
+          final result = await BulkDataImportService.importFollowTags(
+            jsonData,
+            overwrite: true,
+          );
           EventBus.instance.emit(Constant.kUpdateFollow, 0);
-          Log.i('已同步用户自定义标签');
+          Log.i('已同步用户自定义标签：${result.logSummary}');
         } catch (e) {
           Log.e('同步用户自定义标签失败:$e', StackTrace.current);
         }

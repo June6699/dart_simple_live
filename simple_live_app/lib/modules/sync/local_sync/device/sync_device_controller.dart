@@ -8,6 +8,7 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/sync_client_info_model.dart';
 import 'package:simple_live_app/requests/sync_client_request.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
+import 'package:simple_live_app/services/bulk_data_import_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/profile_backup_service.dart';
@@ -18,6 +19,34 @@ class SyncDeviceController extends BaseController {
   final SyncClientInfoModel info;
   SyncDeviceController({required this.client, required this.info});
   SyncClientRequest request = SyncClientRequest();
+
+  Future<void> _syncJsonChunks<T>({
+    required List<T> items,
+    required bool overlay,
+    required String label,
+    required Object? Function(T item) toJson,
+    required Future<bool> Function(String body, bool overlay) send,
+  }) async {
+    final policy = BulkDataImportService.policyForCount(items.length);
+    final chunkSize = policy.scale == BulkDataScale.normal
+        ? items.length
+        : policy.dbBatchSize;
+    Log.i("本地发送$label：count=${items.length} scale=${policy.label}");
+    if (items.isEmpty) {
+      await send(json.encode(const []), overlay);
+      return;
+    }
+    for (var start = 0; start < items.length; start += chunkSize) {
+      final end = (start + chunkSize).clamp(0, items.length).toInt();
+      final chunk = items.sublist(start, end);
+      final body = json.encode(chunk.map(toJson).toList());
+      await send(body, overlay && start == 0);
+      Log.i(
+        "本地发送$label分段：${start + 1}-$end/${items.length} bytes=${body.length}",
+      );
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
 
   Future<bool> showOverlayDialog() async {
     var overlay = await Utils.showAlertDialog(
@@ -35,11 +64,25 @@ class SyncDeviceController extends BaseController {
       SmartDialog.showLoading(msg: "同步中...");
       var users = DBService.instance.getFollowList();
       var tags = DBService.instance.getFollowTagList();
-      var data = json.encode(users.map((e) => e.toJson()).toList());
-      var dataT = json.encode(tags.map((e) => e.toJson()).toList());
-      await request.syncFollow(client, data, overlay: overlay);
+      await _syncJsonChunks(
+        items: users,
+        overlay: overlay,
+        label: "关注",
+        toJson: (item) => item.toJson(),
+        send: (body, chunkOverlay) {
+          return request.syncFollow(client, body, overlay: chunkOverlay);
+        },
+      );
       // 标签和关注必须同时同步
-      await request.syncTag(client, dataT, overlay: overlay);
+      await _syncJsonChunks(
+        items: tags,
+        overlay: overlay,
+        label: "标签",
+        toJson: (item) => item.toJson(),
+        send: (body, chunkOverlay) {
+          return request.syncTag(client, body, overlay: chunkOverlay);
+        },
+      );
       SmartDialog.showToast("已同步关注列表和标签");
     } catch (e) {
       SmartDialog.showToast("同步失败：${exceptionToString(e)}");
@@ -72,8 +115,15 @@ class SyncDeviceController extends BaseController {
       var overlay = await showOverlayDialog();
       SmartDialog.showLoading(msg: "同步中...");
       var histores = DBService.instance.getHistores();
-      var data = json.encode(histores.map((e) => e.toJson()).toList());
-      await request.syncHistory(client, data, overlay: overlay);
+      await _syncJsonChunks(
+        items: histores,
+        overlay: overlay,
+        label: "历史",
+        toJson: (item) => item.toJson(),
+        send: (body, chunkOverlay) {
+          return request.syncHistory(client, body, overlay: chunkOverlay);
+        },
+      );
       SmartDialog.showToast("已同步历史记录");
     } catch (e) {
       SmartDialog.showToast("同步失败：${exceptionToString(e)}");
@@ -87,9 +137,16 @@ class SyncDeviceController extends BaseController {
     try {
       var overlay = await showOverlayDialog();
       SmartDialog.showLoading(msg: "同步中...");
-      var shieldList = AppSettingsController.instance.allShieldValues;
-      var data = json.encode(shieldList.toList());
-      await request.syncBlockedWord(client, data, overlay: overlay);
+      var shieldList = AppSettingsController.instance.allShieldValues.toList();
+      await _syncJsonChunks(
+        items: shieldList,
+        overlay: overlay,
+        label: "屏蔽词",
+        toJson: (item) => item,
+        send: (body, chunkOverlay) {
+          return request.syncBlockedWord(client, body, overlay: chunkOverlay);
+        },
+      );
       SmartDialog.showToast("已同步屏蔽词");
     } catch (e) {
       SmartDialog.showToast("同步失败：${exceptionToString(e)}");

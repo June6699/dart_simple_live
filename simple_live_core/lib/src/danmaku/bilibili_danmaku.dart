@@ -189,15 +189,22 @@ class BiliBiliDanmaku implements LiveDanmaku {
           var color = asT<int?>(obj["info"][0][3]) ?? 0;
           if (obj["info"][2] != null && obj["info"][2].length != 0) {
             var username = obj["info"][2][1].toString();
-            final imageUrls = _extractImageUrls(obj["info"], message);
+            final spans = _extractSpans(obj["info"], message);
+            final imageUrls = spans
+                .where((span) => span.isImage)
+                .map((span) => span.imageUrl!.trim())
+                .toSet()
+                .toList();
+            final textMessage = _buildTextMessage(message, spans);
             var liveMsg = LiveMessage(
               type: LiveMessageType.chat,
               userName: username,
-              message: message,
+              message: textMessage,
               color: color == 0
                   ? LiveMessageColor.white
                   : LiveMessageColor.numberToColor(color),
               imageUrls: imageUrls.isEmpty ? null : imageUrls,
+              spans: spans.isEmpty ? null : spans,
             );
             onMessage?.call(liveMsg);
           }
@@ -235,15 +242,78 @@ class BiliBiliDanmaku implements LiveDanmaku {
     }
   }
 
-  List<String> _extractImageUrls(dynamic info, String message) {
-    final urls = <String>[];
+  List<LiveMessageSpan> _extractSpans(dynamic info, String message) {
+    final emojiMap = _extractEmojiMap(info, message);
+    if (emojiMap.isEmpty) {
+      return const [];
+    }
+    final spans = <LiveMessageSpan>[];
+    final keys = emojiMap.keys.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    var index = 0;
+    while (index < message.length) {
+      String? matchedKey;
+      for (final key in keys) {
+        if (key.isEmpty) {
+          continue;
+        }
+        if (message.startsWith(key, index)) {
+          matchedKey = key;
+          break;
+        }
+      }
+      if (matchedKey == null) {
+        final nextIndex = _nextEmojiIndex(message, keys, index + 1);
+        spans.add(LiveMessageSpan.text(message.substring(index, nextIndex)));
+        index = nextIndex;
+        continue;
+      }
+      final imageUrl = emojiMap[matchedKey]?.trim() ?? "";
+      if (imageUrl.isNotEmpty) {
+        spans.add(LiveMessageSpan.image(imageUrl));
+      }
+      index += matchedKey.length;
+    }
+    return spans;
+  }
 
-    void addUrl(dynamic url) {
+  int _nextEmojiIndex(String message, List<String> keys, int start) {
+    var next = message.length;
+    for (final key in keys) {
+      if (key.isEmpty) {
+        continue;
+      }
+      final index = message.indexOf(key, start);
+      if (index >= 0 && index < next) {
+        next = index;
+      }
+    }
+    return next;
+  }
+
+  String _buildTextMessage(String original, List<LiveMessageSpan> spans) {
+    if (spans.isEmpty) {
+      return original;
+    }
+    final buffer = StringBuffer();
+    for (final span in spans) {
+      if (span.isText) {
+        buffer.write(span.text);
+      }
+    }
+    return buffer.toString().trim();
+  }
+
+  Map<String, String> _extractEmojiMap(dynamic info, String message) {
+    final emojiMap = <String, String>{};
+
+    void addEmoji(String key, dynamic url) {
+      final emojiKey = key.trim();
       final value = url?.toString().trim() ?? "";
-      if (value.isEmpty) {
+      if (emojiKey.isEmpty || value.isEmpty) {
         return;
       }
-      urls.add(value);
+      emojiMap[emojiKey] = value;
     }
 
     try {
@@ -252,7 +322,10 @@ class BiliBiliDanmaku implements LiveDanmaku {
           info[0] is List &&
           info[0].length > 13 &&
           info[0][13] is Map) {
-        addUrl(info[0][13]["url"]);
+        final key = message.trim();
+        if (key.startsWith("[") && key.endsWith("]")) {
+          addEmoji(key, info[0][13]["url"]);
+        }
       }
     } catch (_) {}
 
@@ -274,7 +347,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
               }
               final emot = entry.value;
               if (emot is Map) {
-                addUrl(emot["url"]);
+                addEmoji(key, emot["url"]);
               }
             }
           }
@@ -282,7 +355,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
       }
     } catch (_) {}
 
-    return urls.toSet().toList();
+    return emojiMap;
   }
 
   int readInt(List<int> buffer, int start, int len) {

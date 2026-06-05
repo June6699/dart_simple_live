@@ -169,6 +169,96 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     );
   }
 
+  Widget _buildDesktopOverlayIconButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.black.withAlpha(120),
+        borderRadius: AppStyle.radius24,
+        child: IconButton(
+          onPressed: onPressed,
+          icon: Icon(icon),
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopOverlay(
+    BuildContext context, {
+    required bool hasLandscapeActionPanel,
+  }) {
+    if (!hasLandscapeActionPanel) {
+      return Positioned(
+        left: 8,
+        right: 8,
+        top: 8,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _buildDesktopOverlayIconButton(
+              tooltip: "返回",
+              icon: Icons.arrow_back,
+              onPressed: () => _handleBack(context),
+            ),
+            _buildDesktopOverlayIconButton(
+              tooltip: "更多",
+              icon: Icons.more_horiz,
+              onPressed: showMore,
+            ),
+          ],
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sidePanelWidth = _landscapeSideWidth(constraints.maxWidth);
+        return Positioned.fill(
+          child: Row(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: _buildDesktopOverlayIconButton(
+                        tooltip: "返回",
+                        icon: Icons.arrow_back,
+                        onPressed: () => _handleBack(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (sidePanelWidth > 0)
+                SizedBox(
+                  width: sidePanelWidth,
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: _buildDesktopOverlayIconButton(
+                          tooltip: "更多",
+                          icon: Icons.more_horiz,
+                          onPressed: showMore,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   bool _allowsNativePopGesture() {
     return Platform.isIOS &&
         !controller.fullScreenState.value &&
@@ -258,14 +348,17 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   Widget buildPageUI() {
     return OrientationBuilder(
       builder: (context, orientation) {
-        final usePortraitLayout = Platform.isAndroid &&
+        final usePortraitLayout = (Platform.isAndroid || Platform.isIOS) &&
             !controller.fullScreenState.value &&
             !controller.smallWindowState.value;
         final effectiveOrientation =
             usePortraitLayout ? Orientation.portrait : orientation;
         final hasLandscapeActionPanel =
             effectiveOrientation == Orientation.landscape;
-        if (_isDesktop && hasLandscapeActionPanel) {
+        if (_isDesktop) {
+          final body = effectiveOrientation == Orientation.portrait
+              ? buildPhoneUI(context)
+              : buildTabletUI(context);
           return PopScope(
             canPop: _allowsNativePopGesture(),
             onPopInvokedWithResult: (didPop, result) async {
@@ -276,14 +369,14 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               await _handleBack(context);
             },
             child: Scaffold(
-              body: Column(
+              body: Stack(
                 children: [
-                  SizedBox(
-                    height: kToolbarHeight,
-                    child: _buildLandscapeAppBarTitle(context),
-                  ),
-                  Expanded(
-                    child: buildTabletUI(context),
+                  body,
+                  Obx(
+                    () => _buildDesktopOverlay(
+                      context,
+                      hasLandscapeActionPanel: hasLandscapeActionPanel,
+                    ),
                   ),
                 ],
               ),
@@ -713,14 +806,17 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           controller.site.id == Constant.kHuya;
       final tabs = <Widget>[];
       final pages = <Widget>[];
+      final keys = <String>[];
       void addTab(String key) {
         switch (key) {
           case "chat":
+            keys.add(key);
             tabs.add(const Tab(text: "聊天"));
             pages.add(buildChatList());
             break;
           case "super_chat":
             if (!hasSuperChatTab) return;
+            keys.add(key);
             tabs.add(
               Tab(
                 child: Text(
@@ -735,6 +831,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             pages.add(buildSuperChats());
             break;
           case "follow":
+            keys.add(key);
             tabs.add(const Tab(text: "关注"));
             pages.add(buildFollowList());
             break;
@@ -743,6 +840,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 !AppSettingsController.instance.contributionRankEnable.value) {
               return;
             }
+            keys.add(key);
             tabs.add(
               Tab(
                 text: controller.site.id == Constant.kDouyu ? "亲密榜" : "贡献榜",
@@ -758,6 +856,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             if (!AppSettingsController.instance.liveEventFlowEnable.value) {
               return;
             }
+            keys.add(key);
             tabs.add(
               Tab(
                 child: Text(
@@ -770,6 +869,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             pages.add(buildLiveEventFlow());
             break;
           case "settings":
+            keys.add(key);
             tabs.add(const Tab(text: "设置"));
             pages.add(buildSettings());
             break;
@@ -779,15 +879,30 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       for (final key in AppSettingsController.instance.liveRoomTabSort) {
         addTab(key);
       }
+      if (tabs.isEmpty) {
+        keys.add("chat");
+        tabs.add(const Tab(text: "聊天"));
+        pages.add(buildChatList());
+      }
+      final selectedKey = controller.liveRoomSelectedPanelKey.value;
+      final initialIndex =
+          keys.contains(selectedKey) ? keys.indexOf(selectedKey) : 0;
       return Expanded(
         child: DefaultTabController(
+          key: ValueKey(keys.join("|")),
           length: tabs.length,
+          initialIndex: initialIndex,
           child: Column(
             children: [
               TabBar(
                 indicatorSize: TabBarIndicatorSize.tab,
                 labelPadding: EdgeInsets.zero,
                 indicatorWeight: 1.0,
+                onTap: (index) {
+                  if (index >= 0 && index < keys.length) {
+                    controller.liveRoomSelectedPanelKey.value = keys[index];
+                  }
+                },
                 tabs: tabs,
               ),
               Expanded(

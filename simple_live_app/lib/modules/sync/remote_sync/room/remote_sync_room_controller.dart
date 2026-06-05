@@ -12,9 +12,8 @@ import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
-import 'package:simple_live_app/models/db/follow_user.dart';
-import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
+import 'package:simple_live_app/services/bulk_data_import_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/signalr_service.dart';
 
@@ -38,6 +37,49 @@ class RemoteSyncRoomController extends BaseController {
       currentRoomId.value.trim().length == SignalRService.kRoomIdLength;
 
   Timer? _timer;
+
+  Future<Resp> _sendJsonChunks<T>({
+    required List<T> items,
+    required bool overlay,
+    required String label,
+    required String action,
+    required Object? Function(T item) toJson,
+  }) async {
+    final policy = BulkDataImportService.policyForCount(items.length);
+    final chunkSize = policy.scale == BulkDataScale.normal
+        ? items.length
+        : policy.dbBatchSize;
+    Log.i("房间发送$label：count=${items.length} scale=${policy.label}");
+    if (items.isEmpty) {
+      return signalR.sendContent(
+        roomName: currentRoomId.value,
+        action: action,
+        overlay: overlay,
+        content: json.encode(const []),
+      );
+    }
+    Resp? lastResp;
+    for (var start = 0; start < items.length; start += chunkSize) {
+      final end = (start + chunkSize).clamp(0, items.length).toInt();
+      final chunk = items.sublist(start, end);
+      final content = json.encode(chunk.map(toJson).toList());
+      lastResp = await signalR.sendContent(
+        roomName: currentRoomId.value,
+        action: action,
+        overlay: overlay && start == 0,
+        content: content,
+      );
+      Log.i(
+        "房间发送$label分段：${start + 1}-$end/${items.length} bytes=${content.length}",
+      );
+      if (!lastResp.isSuccess) {
+        return lastResp;
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+    return lastResp ?? Resp(false, "没有可同步的数据", null);
+  }
+
   var countDown = 600.obs;
 
   @override
@@ -146,33 +188,21 @@ class RemoteSyncRoomController extends BaseController {
 
   void onReceiveFavorite(bool overlay, String data) async {
     try {
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(data);
       if (jsonBody is! List) {
         throw const FormatException("关注列表格式不是数组");
       }
-      final users = <FollowUser>[];
-      for (var item in jsonBody) {
-        try {
-          if (item is Map) {
-            final user = FollowUser.fromJson(Map<String, dynamic>.from(item));
-            if (user.id.isNotEmpty &&
-                user.roomId.isNotEmpty &&
-                user.siteId.isNotEmpty) {
-              users.add(user);
-            }
-          }
-        } catch (e) {
-          Log.d("跳过异常关注项: $e");
-        }
-      }
-      if (overlay) {
-        await DBService.instance.followBox.clear();
-      }
-      for (var user in users) {
-        await DBService.instance.followBox.put(user.id, user);
-      }
+      final result = await BulkDataImportService.importFollowUsers(
+        jsonBody,
+        overwrite: overlay,
+      );
+      stopwatch.stop();
+      Log.i(
+        "房间同步关注完成：${result.logSummary} bytes=${data.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
       EventBus.instance.emit(Constant.kUpdateFollow, 0);
-      SmartDialog.showToast("已同步关注列表（${users.length} 条）");
+      SmartDialog.showToast("已同步关注列表（${result.imported} 条）");
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
       Log.logPrint(e);
@@ -181,39 +211,20 @@ class RemoteSyncRoomController extends BaseController {
 
   void onReceiveHistory(bool overlay, String data) async {
     try {
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(data);
       if (jsonBody is! List) {
         throw const FormatException("历史记录格式不是数组");
       }
-      final histories = <History>[];
-      for (var item in jsonBody) {
-        try {
-          if (item is Map) {
-            final history = History.fromJson(Map<String, dynamic>.from(item));
-            if (history.id.isNotEmpty &&
-                history.roomId.isNotEmpty &&
-                history.siteId.isNotEmpty) {
-              histories.add(history);
-            }
-          }
-        } catch (e) {
-          Log.d("跳过异常历史项: $e");
-        }
-      }
-      if (overlay) {
-        await DBService.instance.historyBox.clear();
-      }
-      for (var history in histories) {
-        if (DBService.instance.historyBox.containsKey(history.id)) {
-          var old = DBService.instance.historyBox.get(history.id);
-          //如果本地的更新时间比较新，就不更新
-          if (old!.updateTime.isAfter(history.updateTime)) {
-            continue;
-          }
-        }
-        await DBService.instance.addOrUpdateHistory(history);
-      }
-      SmartDialog.showToast('已同步历史记录');
+      final result = await BulkDataImportService.importHistories(
+        jsonBody,
+        overwrite: overlay,
+      );
+      stopwatch.stop();
+      Log.i(
+        "房间同步历史完成：${result.logSummary} bytes=${data.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
+      SmartDialog.showToast('已同步历史记录（${result.imported} 条）');
       EventBus.instance.emit(Constant.kUpdateHistory, 0);
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
@@ -223,17 +234,20 @@ class RemoteSyncRoomController extends BaseController {
 
   void onReceiveShieldWord(bool overlay, String data) async {
     try {
+      final stopwatch = Stopwatch()..start();
       var jsonBody = json.decode(data);
       if (jsonBody is! List) {
         throw const FormatException("屏蔽词格式不是数组");
       }
-      if (overlay) {
-        await AppSettingsController.instance.clearShieldList();
-      }
-      for (var item in jsonBody) {
-        AppSettingsController.instance.importShieldValue(item.toString());
-      }
-      SmartDialog.showToast('已同步屏蔽词');
+      final result = await BulkDataImportService.importShieldValues(
+        jsonBody,
+        overwrite: overlay,
+      );
+      stopwatch.stop();
+      Log.i(
+        "房间同步屏蔽词完成：${result.logSummary} bytes=${data.length} elapsed=${stopwatch.elapsedMilliseconds}ms",
+      );
+      SmartDialog.showToast('已同步屏蔽词（${result.imported} 条）');
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
       Log.logPrint(e);
@@ -279,13 +293,12 @@ class RemoteSyncRoomController extends BaseController {
       var overlay = await showOverlayDialog();
       SmartDialog.showLoading(msg: "发送中...");
       var users = DBService.instance.getFollowList();
-      var data = json.encode(users.map((e) => e.toJson()).toList());
-
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
+      var resp = await _sendJsonChunks(
+        items: users,
+        label: "关注",
         action: "SendFavorite",
         overlay: overlay,
-        content: data,
+        toJson: (item) => item.toJson(),
       );
       if (resp.isSuccess) {
         SmartDialog.showToast("已发送关注列表");
@@ -309,12 +322,12 @@ class RemoteSyncRoomController extends BaseController {
       var overlay = await showOverlayDialog();
       SmartDialog.showLoading(msg: "发送中...");
       var histores = DBService.instance.getHistores();
-      var data = json.encode(histores.map((e) => e.toJson()).toList());
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
+      var resp = await _sendJsonChunks(
+        items: histores,
+        label: "历史",
         action: "SendHistory",
         overlay: overlay,
-        content: data,
+        toJson: (item) => item.toJson(),
       );
       if (resp.isSuccess) {
         SmartDialog.showToast("已发送历史记录");
@@ -337,14 +350,13 @@ class RemoteSyncRoomController extends BaseController {
       }
       var overlay = await showOverlayDialog();
       SmartDialog.showLoading(msg: "发送中...");
-      var shieldList = AppSettingsController.instance.allShieldValues;
-      var data = json.encode(shieldList.toList());
-
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
+      var shieldList = AppSettingsController.instance.allShieldValues.toList();
+      var resp = await _sendJsonChunks(
+        items: shieldList,
+        label: "屏蔽词",
         action: "SendShieldWord",
         overlay: overlay,
-        content: data,
+        toJson: (item) => item,
       );
       if (resp.isSuccess) {
         SmartDialog.showToast("已发送屏蔽词");

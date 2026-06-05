@@ -77,6 +77,7 @@ class LiveRoomController extends PlayerController
   Rx<DateTime?> contributionRankUpdatedAt = Rx<DateTime?>(null);
   RxDouble danmakuViewportHeight = 0.0.obs;
   final liveRoomFollowFilterMode = 0.obs;
+  final liveRoomSelectedPanelKey = "chat".obs;
   final desktopSidePanelCollapsed = false.obs;
   RxSet<String> tempMutedUsers = <String>{}.obs;
   bool get supportsContributionRank => const {
@@ -173,7 +174,7 @@ class LiveRoomController extends PlayerController
       windowManager.addListener(this);
     }
     if (FollowService.instance.followList.isEmpty) {
-      FollowService.instance.loadData();
+      FollowService.instance.loadData(updateStatus: false);
     }
     initAutoExit();
     showDanmakuState.value = AppSettingsController.instance.danmuEnable.value;
@@ -1193,6 +1194,7 @@ class LiveRoomController extends PlayerController
   /// 加载直播间信息
   void loadData() async {
     final loadGeneration = ++_loadGeneration;
+    final loadStopwatch = Stopwatch()..start();
     try {
       SmartDialog.showLoading(msg: "");
       loadError.value = false;
@@ -1207,8 +1209,13 @@ class LiveRoomController extends PlayerController
       clearDanmakuReplayHistory();
       rebuildDanmakuView();
       addSysMsg("正在读取直播间信息");
+      final detailStopwatch = Stopwatch()..start();
       detail.value = _sanitizeRoomDetail(
         await site.liveSite.getRoomDetail(roomId: roomId),
+      );
+      detailStopwatch.stop();
+      Log.i(
+        "读取直播间信息完成：${site.id}/$roomId ${detailStopwatch.elapsedMilliseconds}ms",
       );
       if (!_isCurrentLoad(loadGeneration)) {
         return;
@@ -1288,6 +1295,10 @@ class LiveRoomController extends PlayerController
       if (_isCurrentLoad(loadGeneration)) {
         SmartDialog.dismiss(status: SmartStatus.loading);
       }
+      loadStopwatch.stop();
+      Log.i(
+        "直播间加载流程结束：${site.id}/$roomId ${loadStopwatch.elapsedMilliseconds}ms",
+      );
     }
   }
 
@@ -1417,6 +1428,7 @@ class LiveRoomController extends PlayerController
       }
 
       // 重新初始化播放器，并带上当前线路的请求头。
+      final openStopwatch = Stopwatch()..start();
       await initializePlayer();
       if (_roomDisposed) {
         return;
@@ -1427,6 +1439,10 @@ class LiveRoomController extends PlayerController
           finalUrl,
           httpHeaders: playHeaders,
         ),
+      );
+      openStopwatch.stop();
+      Log.i(
+        "播放器打开完成：${site.id}/$roomId ${openStopwatch.elapsedMilliseconds}ms",
       );
       unawaited(
         LiveSubtitleService.instance.syncPreviewFromSettings(

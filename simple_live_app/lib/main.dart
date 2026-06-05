@@ -51,7 +51,6 @@ void main(List<String> args) async {
   await Hive.initFlutter(await resolveHivePath(args));
   //初始化服务
   await initServices();
-  await setupDesktopWindowLifecycle();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   //设置状态栏为透明
   SystemUiOverlayStyle systemUiOverlayStyle = const SystemUiOverlayStyle(
@@ -61,6 +60,7 @@ void main(List<String> args) async {
   );
   SystemChrome.setSystemUIOverlayStyle(systemUiOverlayStyle);
   runApp(const MyApp());
+  unawaited(setupDesktopWindowLifecycle());
 }
 
 Future<String?> resolveHivePath(List<String> args) async {
@@ -189,6 +189,7 @@ Future initWindow() async {
     return;
   }
   await windowManager.ensureInitialized();
+  Log.i("桌面窗口初始化");
   WindowOptions windowOptions = const WindowOptions(
     minimumSize: Size(280, 280),
     title: "Simple Live",
@@ -206,9 +207,15 @@ Future<void> setupDesktopWindowLifecycle() async {
   if (Platform.isWindows) {
     await windowManager.setPreventClose(true);
   }
+  await WidgetsBinding.instance.endOfFrame;
+  Log.i("准备显示桌面窗口");
   await _desktopWindowLifecycle.restoreWindowPlacement();
   await windowManager.show();
   await windowManager.focus();
+  await Future<void>.delayed(const Duration(milliseconds: 300));
+  await windowManager.show();
+  await windowManager.focus();
+  Log.i("桌面窗口已请求显示");
 }
 
 class _DesktopWindowLifecycle with WindowListener {
