@@ -101,7 +101,7 @@ packages:
     description:
       path: "."
       ref: HEAD
-      resolved-ref: b335f65fb577e5f355689d8a21ace6d034a5bb47
+      resolved-ref: "5d56e52de900180b4a198397b4af902272247e3b"
       url: "https://github.com/xiaoyaocz/dart_quickjs"
     source: git
     version: "1.0.0"
@@ -548,8 +548,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/native_toolchain_c"
-      ref: b335f65fb577e5f355689d8a21ace6d034a5bb47
-      resolved-ref: b335f65fb577e5f355689d8a21ace6d034a5bb47
+      ref: "5d56e52de900180b4a198397b4af902272247e3b"
+      resolved-ref: "5d56e52de900180b4a198397b4af902272247e3b"
       url: "https://github.com/xiaoyaocz/dart_quickjs"
     source: git
     version: "0.17.4"
