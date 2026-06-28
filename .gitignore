@@ -1,42 +1,35 @@
-# settings
+# Editor settings
 simple_live_app/.vscode/settings.json
 simple_live_tv_app/.vscode/settings.json
 
-# local release artifacts
+# Local workspace metadata
+.codex/
+
+# Local release and build artifacts
 release/
 models/
 docs/
 issue_logs/
 experience/
-**/android/app/build/
 graphify-out/
-.codex/
+**/android/app/build/
 
-# scripts 
+# Local scripts
 build_android_apk.bat
 build_tv_apk.bat
 deploy_windows.bat
 tools/build-release.ps1
 tools/build-*.ps1
 
-# local temp workspace files
+# Local temp workspace files
 fix-guide.md
-
-
-# macOS Spotlight Search index file
-*.DS_Store
-
-# doc
-*.md
-!README.md
-!**/README.md
-
-# others
 tmp_*.png
 tmp_*.xml
 
-.codex/
+# macOS metadata
+*.DS_Store
 
-!.codex/
-.codex/**
-!.codex/project-experience.md
+# Markdown docs
+*.md
+!README.md
+!**/README.md
