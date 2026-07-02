@@ -23,7 +23,6 @@ import 'package:simple_live_tv_app/app/utils.dart';
 import 'package:simple_live_tv_app/models/db/follow_user.dart';
 import 'package:simple_live_tv_app/models/db/history.dart';
 import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
-import 'package:simple_live_tv_app/modules/live_room/player/player_controls.dart';
 import 'package:simple_live_tv_app/routes/app_navigation.dart';
 import 'package:simple_live_tv_app/routes/app_pages.dart';
 import 'package:simple_live_tv_app/routes/route_path.dart';
@@ -359,7 +358,10 @@ class MyApp extends StatelessWidget {
     if (!Get.isRegistered<LiveRoomController>()) {
       return null;
     }
-    showPlayerSettings(Get.find<LiveRoomController>());
+    Get.find<LiveRoomController>().handleDesktopShortcut(
+      key,
+      source: "channel",
+    );
     return null;
   }
 }

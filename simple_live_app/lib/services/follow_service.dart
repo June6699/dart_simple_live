@@ -41,6 +41,7 @@ class FollowService extends GetxService {
 
   final StreamController _updatedListController = StreamController.broadcast();
   Stream get updatedListStream => _updatedListController.stream;
+  final Set<String> _previewRefreshingKeys = <String>{};
 
   /// 关注用户列表
   RxList<FollowUser> followList = RxList<FollowUser>();
@@ -192,35 +193,35 @@ class FollowService extends GetxService {
     }
   }
 
-  /// 获取最优并发数。
-  /// 后台按关注规模自动控制，不再读取用户配置，避免超大关注列表刷崩。
-  int getOptimalConcurrency({int? totalCount}) {
+  /// 获取关注刷新并发数。
+  /// 0 = 自动，自动最多 4；手动 1-8 直接生效。
+  int getOptimalConcurrency({
+    int? totalCount,
+  }) {
     final count = totalCount ?? followList.length;
-    final currentSiteId = CurrentRoomService.instance.siteId.value;
-    final maxWhenPlayingDouyin = currentSiteId == Constant.kDouyin ? 4 : null;
     if (count <= 0) {
       return 1;
     }
-    int cap(int value) {
-      if (maxWhenPlayingDouyin == null) {
-        return value;
-      }
-      return value.clamp(1, maxWhenPlayingDouyin).toInt();
+    final manual =
+        AppSettingsController.instance.effectiveUpdateFollowThreadCount;
+    if (manual > 0) {
+      return manual.clamp(1, count).toInt();
     }
+    var concurrency = 2;
+    if (count <= 50) {
+      concurrency = count < 2 ? count : 2;
+    } else if (count <= 200) {
+      concurrency = 3;
+    } else {
+      concurrency = 4;
+    }
+    return concurrency.clamp(1, count).toInt();
+  }
 
-    if (count <= 300) {
-      return cap(count < 48 ? count : 48);
-    }
-    if (count <= 1000) {
-      return cap(32);
-    }
-    if (count <= 3000) {
-      return cap(20);
-    }
-    if (count <= 5000) {
-      return cap(12);
-    }
-    return cap(8);
+  String _getConcurrencyMode() {
+    final manual =
+        AppSettingsController.instance.effectiveUpdateFollowThreadCount;
+    return manual > 0 ? "手动($manual)" : "自动";
   }
 
   /// 按平台交错排列，避免单一平台阻塞
@@ -320,127 +321,14 @@ class FollowService extends GetxService {
     );
   }
 
-  List<FollowUser> _specialFirstTargets(List<FollowUser> items) {
-    final specials = _orderRefreshBucketBySite(
-      items.where((item) => item.isSpecialFollow).toList(),
-    );
-    final normals = _orderRefreshBucketBySite(
-      items.where((item) => !item.isSpecialFollow).toList(),
-      moveCurrentRoomToEnd: true,
-    );
-    return [...specials, ...normals];
-  }
-
   Future<void> startUpdateStatus({bool force = false}) async {
-    final now = DateTime.now();
-    final lastStartedAt = _lastUpdateStatusStartedAt;
-    if (!force &&
-        lastStartedAt != null &&
-        now.difference(lastStartedAt) < updateStatusCooldown) {
-      Log.logPrint("关注状态刷新过于频繁，已跳过本次网络刷新");
-      updating.value = false;
-      _resetRefreshProgress();
-      filterData();
-      return;
-    }
-    _lastUpdateStatusStartedAt = now;
-    final generation = ++_updateGeneration;
-    final automatic = !force;
-    _cancelRefreshProgressReset();
-    if (updating.value) {
-      Log.logPrint("已有关注状态刷新任务，取消旧任务并启动新任务");
-    }
-    updating.value = true;
-    _setRefreshProgress(
-      active: true,
-      automatic: automatic,
-      scopeKey: "all",
-      stage: "正在刷新关注状态",
-      current: 0,
-      total: followList.length,
+    return refreshSelectedStatus(
+      followList,
+      includeAllNormals: true,
+      force: force,
+      scope: FollowRefreshScope.all(automatic: !force),
+      allowDetailRefresh: force,
     );
-
-    var concurrency = getOptimalConcurrency(totalCount: followList.length);
-    final policy = BulkDataImportService.policyForCount(followList.length);
-
-    Log.logPrint(
-      "开始更新关注状态，并发数: $concurrency，总数: ${followList.length}，规模: ${policy.label}",
-    );
-
-    try {
-      // 特别关注先刷，普通关注再按平台交错；普通关注里仍保留当前房间靠后。
-      var interleavedList = _specialFirstTargets(followList);
-
-      // 创建任务队列
-      var taskQueue = Queue<FollowUser>.from(interleavedList);
-      final douyinTargetCount = interleavedList
-          .where((item) => item.siteId == Constant.kDouyin)
-          .length;
-      final douyinLimiter = douyinTargetCount > 0
-          ? DouyinFollowRefreshLimiter.forTargetCount(douyinTargetCount)
-          : null;
-
-      // 工作函数 - 持续从队列中取任务执行
-      var completed = 0;
-
-      Future<void> worker(int workerId) async {
-        while (taskQueue.isNotEmpty) {
-          if (generation != _updateGeneration) {
-            return;
-          }
-          var item = taskQueue.removeFirst();
-          await _updateLiveStatus(
-            item,
-            generation: generation,
-            douyinLimiter: douyinLimiter,
-            workerIndex: workerId,
-            pauseRemainingOnLimited: false,
-          );
-          if (generation != _updateGeneration) {
-            return;
-          }
-          completed++;
-          _setRefreshProgress(
-            active: true,
-            automatic: automatic,
-            scopeKey: "all",
-            stage: "正在刷新关注状态",
-            current: completed,
-            total: interleavedList.length,
-          );
-        }
-      }
-
-      // 启动固定数量的并发 worker
-      var workers = <Future>[];
-      for (var i = 0; i < concurrency; i++) {
-        workers.add(worker(i));
-      }
-
-      await Future.wait(workers);
-
-      if (generation != _updateGeneration) {
-        return;
-      }
-      if (douyinLimiter != null) {
-        final summary = douyinLimiter.finish(douyinTargetCount);
-        Log.logPrint(
-          "抖音关注刷新总结 scope=all target=${summary.targetCount} "
-          "startConcurrency=${summary.initialConcurrency} "
-          "startInterval=${summary.initialInterval.inMilliseconds}ms "
-          "finalInterval=${summary.finalInterval.inMilliseconds}ms "
-          "success=${summary.successCount} limited=${summary.limitedCount} "
-          "cooldown=${summary.cooledDown} elapsed=${summary.elapsed.inMilliseconds}ms",
-        );
-      }
-      filterData();
-      Log.logPrint("关注状态更新完成");
-    } finally {
-      if (generation == _updateGeneration) {
-        updating.value = false;
-        _finishRefreshProgressLifecycle(generation);
-      }
-    }
   }
 
   Future<_FollowRefreshItemResult> _updateLiveStatus(
@@ -460,7 +348,8 @@ class FollowService extends GetxService {
       // 手动/自动关注刷新统一走状态优先，不在主链路同步补详情。
       var isLiving = await site.liveSite.getLiveStatus(roomId: item.roomId);
       if (generation != null && generation != _updateGeneration) {
-        return const _FollowRefreshItemResult(_FollowRefreshItemOutcome.deferred);
+        return const _FollowRefreshItemResult(
+            _FollowRefreshItemOutcome.deferred);
       }
       if (item.siteId == Constant.kDouyin && douyinLimiter != null) {
         douyinLimiter.onSuccess();
@@ -476,7 +365,8 @@ class FollowService extends GetxService {
       } else if (item.liveStatus.value == 2) {
         final detail = await site.liveSite.getRoomDetail(roomId: item.roomId);
         if (generation != null && generation != _updateGeneration) {
-          return const _FollowRefreshItemResult(_FollowRefreshItemOutcome.deferred);
+          return const _FollowRefreshItemResult(
+              _FollowRefreshItemOutcome.deferred);
         }
         item.liveStartTime = detail.showTime;
       } else {
@@ -495,7 +385,8 @@ class FollowService extends GetxService {
       return const _FollowRefreshItemResult(_FollowRefreshItemOutcome.success);
     } catch (e) {
       if (generation != null && generation != _updateGeneration) {
-        return const _FollowRefreshItemResult(_FollowRefreshItemOutcome.deferred);
+        return const _FollowRefreshItemResult(
+            _FollowRefreshItemOutcome.deferred);
       }
       var limited = false;
       if (_isDouyinLimited(item, e)) {
@@ -540,12 +431,14 @@ class FollowService extends GetxService {
     dynamic liveSite, {
     required bool isLiving,
     required int? generation,
+    LiveRoomDetail? detail,
   }) async {
-    final detail = await liveSite.getRoomDetail(roomId: item.roomId);
+    final resolvedDetail =
+        detail ?? await liveSite.getRoomDetail(roomId: item.roomId);
     if (generation != null && generation != _updateGeneration) {
       return;
     }
-    final resolvedRoomId = detail.roomId.trim();
+    final resolvedRoomId = resolvedDetail.roomId.trim();
     if (resolvedRoomId.isNotEmpty && resolvedRoomId != item.roomId) {
       final oldId = item.id;
       final newId = "${item.siteId}_$resolvedRoomId";
@@ -555,11 +448,24 @@ class FollowService extends GetxService {
       await DBService.instance.addFollow(item);
       await _migrateFollowTagReferences(oldId, newId);
     }
-    item.liveStatus.value = detail.status ? 2 : 1;
-    item.liveStartTime = detail.status && isLiving ? detail.showTime : null;
+    final title = resolvedDetail.title.trim();
+    final cover = resolvedDetail.cover.trim();
+    if (title.isNotEmpty) {
+      item.roomTitle = title;
+    }
+    if (cover.isNotEmpty) {
+      item.roomCover = cover;
+    }
+    if (title.isNotEmpty || cover.isNotEmpty) {
+      item.previewUpdatedAt = DateTime.now();
+    }
+    item.liveStatus.value = resolvedDetail.status ? 2 : 1;
+    item.liveStartTime =
+        resolvedDetail.status && isLiving ? resolvedDetail.showTime : null;
     if (item.liveStatus.value != 2) {
       _liveNotifySentIds.remove(item.id);
     }
+    await DBService.instance.addFollow(item);
   }
 
   Future<void> _migrateFollowTagReferences(String oldId, String newId) async {
@@ -583,7 +489,6 @@ class FollowService extends GetxService {
         error is CoreError &&
         error.statusCode == 444;
   }
-
 
   void _handleDouyinLimited({required bool pauseRemainingOnLimited}) {
     if (pauseRemainingOnLimited) {
@@ -744,7 +649,257 @@ class FollowService extends GetxService {
 
   Future<void> _clearPersistedRefreshTask() async {
     await LocalStorageService.instance.removeValue(_refreshTaskStateStorageKey);
-    await LocalStorageService.instance.removeValue(_refreshTaskTargetsStorageKey);
+    await LocalStorageService.instance
+        .removeValue(_refreshTaskTargetsStorageKey);
+  }
+
+  List<FollowUser> _buildManualDetailTargets(List<FollowUser> items) {
+    final candidates = _distinctFollowUsers(
+      items.where(
+        (item) => item.siteId == Constant.kDouyin || item.liveStatus.value == 2,
+      ),
+    );
+    return _orderRefreshBucketBySite(candidates);
+  }
+
+  List<FollowUser> _buildPreviewTargets(
+    Iterable<FollowUser> items, {
+    bool force = false,
+  }) {
+    final now = DateTime.now();
+    return _orderRefreshBucketBySite(
+      _distinctFollowUsers(
+        items.where((item) {
+          if (item.liveStatus.value != 2) {
+            return false;
+          }
+          final targetKey = _refreshTargetKey(item);
+          if (_previewRefreshingKeys.contains(targetKey)) {
+            return false;
+          }
+          if (force) {
+            return true;
+          }
+          final missingPreview =
+              item.roomTitle.trim().isEmpty || item.roomCover.trim().isEmpty;
+          if (missingPreview) {
+            return true;
+          }
+          final updatedAt = item.previewUpdatedAt;
+          if (updatedAt == null) {
+            return true;
+          }
+          return now.difference(updatedAt) > const Duration(minutes: 30);
+        }),
+      ),
+    );
+  }
+
+  Future<void> refreshVisiblePreviews(
+    Iterable<FollowUser> pageItems, {
+    bool force = false,
+  }) async {
+    final targets = _buildPreviewTargets(pageItems, force: force);
+    if (targets.isEmpty) {
+      return;
+    }
+    final keys = targets.map(_refreshTargetKey).toList(growable: false);
+    _previewRefreshingKeys.addAll(keys);
+    try {
+      await _refreshMetadataTargets(
+        targets,
+        scope: const FollowRefreshScope(
+          scopeKey: "preview",
+          includeAllNormals: false,
+          automatic: true,
+          allowBackgroundSpecials: false,
+          stage: "正在补齐封面与标题",
+          backgroundStage: "",
+        ),
+        stage: "正在补齐封面与标题",
+        refreshProgressUi: false,
+        reconcileDouyinIdentity: true,
+      );
+    } finally {
+      _previewRefreshingKeys.removeAll(keys);
+    }
+  }
+
+  Future<FollowUser> resolveFollowBeforeEnter(FollowUser item) async {
+    if (item.siteId != Constant.kDouyin) {
+      return item;
+    }
+    await _refreshMetadataTargets(
+      [item],
+      scope: const FollowRefreshScope(
+        scopeKey: "room-enter",
+        includeAllNormals: false,
+        automatic: false,
+        allowBackgroundSpecials: false,
+        stage: "正在校正直播间",
+        backgroundStage: "",
+      ),
+      stage: "正在校正直播间",
+      refreshProgressUi: false,
+      reconcileDouyinIdentity: true,
+    );
+    return item;
+  }
+
+  Future<void> _refreshMetadataTargets(
+    List<FollowUser> targets, {
+    required FollowRefreshScope scope,
+    required String stage,
+    required bool refreshProgressUi,
+    required bool reconcileDouyinIdentity,
+  }) async {
+    if (targets.isEmpty) {
+      return;
+    }
+    final orderedTargets =
+        _orderRefreshBucketBySite(_distinctFollowUsers(targets));
+    final generation = _updateGeneration;
+    var completed = 0;
+    var successCount = 0;
+    var failedCount = 0;
+    var changed = false;
+
+    void updateProgress({required bool done}) {
+      if (!refreshProgressUi) {
+        return;
+      }
+      final detail = [
+        "成功 $successCount",
+        if (failedCount > 0) "失败 $failedCount",
+      ].join("  ");
+      _setRefreshProgress(
+        active: !done,
+        automatic: scope.automatic,
+        scopeKey: scope.scopeKey,
+        stage: stage,
+        current: completed,
+        total: orderedTargets.length,
+        successCount: successCount,
+        failedCount: failedCount,
+        detail: detail,
+        completed: done,
+      );
+    }
+
+    Future<void> worker(
+      Queue<FollowUser> queue, {
+      required bool isDouyinQueue,
+    }) async {
+      while (queue.isNotEmpty) {
+        if (generation != _updateGeneration) {
+          return;
+        }
+        final item = queue.removeFirst();
+        try {
+          final site = Sites.allSites[item.siteId]!;
+          final detail = await site.liveSite.getRoomDetail(roomId: item.roomId);
+          if (generation != _updateGeneration) {
+            return;
+          }
+          if (reconcileDouyinIdentity && isDouyinQueue) {
+            await _reconcileDouyinFollowIdentity(
+              item,
+              site.liveSite,
+              isLiving: item.liveStatus.value == 2 || detail.status,
+              generation: generation,
+              detail: detail,
+            );
+          } else {
+            final title = detail.title.trim();
+            final cover = detail.cover.trim();
+            if (title.isNotEmpty && title != item.roomTitle) {
+              item.roomTitle = title;
+              changed = true;
+            }
+            if (cover.isNotEmpty && cover != item.roomCover) {
+              item.roomCover = cover;
+              changed = true;
+            }
+            if (detail.status && item.liveStartTime != detail.showTime) {
+              item.liveStartTime = detail.showTime;
+              changed = true;
+            }
+            if (title.isNotEmpty || cover.isNotEmpty) {
+              item.previewUpdatedAt = DateTime.now();
+              changed = true;
+            }
+            await DBService.instance.addFollow(item);
+          }
+          changed = true;
+          successCount++;
+        } catch (e) {
+          if (generation != _updateGeneration) {
+            return;
+          }
+          failedCount++;
+          Log.logPrint("关注详情补齐失败(${item.siteId}/${item.roomId}): $e");
+        } finally {
+          completed++;
+          updateProgress(done: false);
+        }
+      }
+    }
+
+    if (refreshProgressUi) {
+      _cancelRefreshProgressReset();
+      updating.value = true;
+      _setRefreshProgress(
+        active: true,
+        automatic: scope.automatic,
+        scopeKey: scope.scopeKey,
+        stage: stage,
+        current: 0,
+        total: orderedTargets.length,
+      );
+      Log.logPrint(
+        "关注详情补齐阶段开始，目标数: ${orderedTargets.length}，scope=${scope.scopeKey}",
+      );
+    }
+
+    try {
+      final douyinTargets = orderedTargets
+          .where((item) => item.siteId == Constant.kDouyin)
+          .toList(growable: false);
+      final otherTargets = orderedTargets
+          .where((item) => item.siteId != Constant.kDouyin)
+          .toList(growable: false);
+      for (final group in [douyinTargets, otherTargets]) {
+        if (group.isEmpty) {
+          continue;
+        }
+        final queue = Queue<FollowUser>.from(group);
+        final isDouyinQueue = group.first.siteId == Constant.kDouyin;
+        final workerCount =
+            isDouyinQueue ? 1 : group.length.clamp(1, 2).toInt();
+        final workers = <Future<void>>[];
+        for (var i = 0; i < workerCount; i++) {
+          workers.add(worker(queue, isDouyinQueue: isDouyinQueue));
+        }
+        await Future.wait(workers);
+        if (generation != _updateGeneration) {
+          return;
+        }
+      }
+      if (changed) {
+        filterData();
+      }
+      updateProgress(done: true);
+      if (refreshProgressUi) {
+        Log.logPrint(
+          "关注详情补齐阶段完成，成功: $successCount，失败: $failedCount，scope=${scope.scopeKey}",
+        );
+      }
+    } finally {
+      if (refreshProgressUi && generation == _updateGeneration) {
+        updating.value = false;
+        _finishRefreshProgressLifecycle(generation);
+      }
+    }
   }
 
   _RefreshTargetPolicyResult _applyDouyinRefreshPolicy(
@@ -755,17 +910,18 @@ class FollowService extends GetxService {
     return _RefreshTargetPolicyResult(
       allowedTargets: orderedTargets,
       deferredTargets: const [],
-      toastMessage: hasFullDouyinCookie
-          ? ""
-          : "抖音未登录时将自动降速刷新；若出现 444，会暂停并保留剩余任务供后续继续。",
+      toastMessage:
+          hasFullDouyinCookie ? "" : "抖音未登录时将自动降速刷新；若出现 444，会暂停并保留剩余任务供后续继续。",
     );
   }
+
   Future<void> refreshSelectedStatus(
     Iterable<FollowUser> normalTargets, {
     bool includeAllNormals = false,
     bool force = true,
     FollowRefreshScope? scope,
-  }) {
+    bool allowDetailRefresh = true,
+  }) async {
     final resolvedScope = scope ??
         FollowRefreshScope.all(
           automatic: !force,
@@ -776,10 +932,21 @@ class FollowService extends GetxService {
             includeAllNormals: includeAllNormals,
           )
         : buildPageFrontTargets(normalTargets);
-    return _refreshStatusTargets(
+    await _refreshStatusTargets(
       targets,
       force: force,
       scope: resolvedScope,
+    );
+    if (!allowDetailRefresh || resolvedScope.automatic || targets.isEmpty) {
+      return;
+    }
+    final detailTargets = _buildManualDetailTargets(targets);
+    await _refreshMetadataTargets(
+      detailTargets,
+      scope: resolvedScope,
+      stage: "正在补齐封面与标题",
+      refreshProgressUi: true,
+      reconcileDouyinIdentity: true,
     );
   }
 
@@ -831,14 +998,17 @@ class FollowService extends GetxService {
     }
 
     try {
-      var concurrency = getOptimalConcurrency(totalCount: targets.length);
+      var concurrency = getOptimalConcurrency(
+        totalCount: targets.length,
+      );
       final policy = BulkDataImportService.policyForCount(targets.length);
       final hasFullDouyinCookie = DouyinCookieHelper.hasFullCookie(
-        (Sites.allSites[Constant.kDouyin]?.liveSite as DouyinSite?)?.cookie ?? "",
+        (Sites.allSites[Constant.kDouyin]?.liveSite as DouyinSite?)?.cookie ??
+            "",
       );
 
       Log.logPrint(
-        "关注刷新开始，并发数: $concurrency，目标数: ${targets.length}，策略: ${policy.label}，"
+        "关注状态阶段开始，并发数: $concurrency，模式: ${_getConcurrencyMode()}，目标数: ${targets.length}，策略: ${policy.label}，"
         "scope=${scope.scopeKey} fullDouyinCookie=$hasFullDouyinCookie",
       );
 
@@ -935,9 +1105,7 @@ class FollowService extends GetxService {
 
       while (pendingKeys.isNotEmpty) {
         final taskQueue = Queue<FollowUser>.from(
-          pendingKeys
-              .map((key) => targetByKey[key])
-              .whereType<FollowUser>(),
+          pendingKeys.map((key) => targetByKey[key]).whereType<FollowUser>(),
         );
         pausedForResume = false;
 
@@ -978,11 +1146,11 @@ class FollowService extends GetxService {
               case _FollowRefreshItemOutcome.skipped:
                 break;
             }
-      if (result.pauseRemaining) {
-        pausedForResume = true;
-        deferredCount =
-            filteredTargets.deferredTargets.length + pendingKeys.length;
-      }
+            if (result.pauseRemaining) {
+              pausedForResume = true;
+              deferredCount =
+                  filteredTargets.deferredTargets.length + pendingKeys.length;
+            }
             if (scope.includeAllNormals && !isHugeTask) {
               unawaited(
                 _persistRefreshTask(
@@ -1076,7 +1244,7 @@ class FollowService extends GetxService {
       }
       filterData();
 
-      Log.logPrint("关注状态刷新完成");
+      Log.logPrint("关注状态阶段完成");
     } finally {
       if (generation == _updateGeneration) {
         updating.value = false;
@@ -1431,3 +1599,102 @@ class _PersistedFollowRefreshTaskState {
   }
 }
 
+class DouyinFollowRefreshLimiter {
+  final int initialConcurrency;
+  final Duration initialInterval;
+  Duration _currentInterval;
+  final Stopwatch _stopwatch = Stopwatch()..start();
+  Future<void> _gate = Future.value();
+  DateTime? _lastRequestAt;
+  int _successCount = 0;
+  int _limitedCount = 0;
+  bool _cooledDown = false;
+
+  DouyinFollowRefreshLimiter._({
+    required this.initialConcurrency,
+    required this.initialInterval,
+  }) : _currentInterval = initialInterval;
+
+  factory DouyinFollowRefreshLimiter.forTargetCount(int targetCount) {
+    if (targetCount <= 20) {
+      return DouyinFollowRefreshLimiter._(
+        initialConcurrency: targetCount.clamp(1, 4).toInt(),
+        initialInterval: const Duration(milliseconds: 220),
+      );
+    }
+    if (targetCount <= 100) {
+      return DouyinFollowRefreshLimiter._(
+        initialConcurrency: 4,
+        initialInterval: const Duration(milliseconds: 360),
+      );
+    }
+    return DouyinFollowRefreshLimiter._(
+      initialConcurrency: 4,
+      initialInterval: const Duration(milliseconds: 520),
+    );
+  }
+
+  Future<void> beforeRequest(int workerIndex) {
+    final next = _gate.then((_) async {
+      final lastRequestAt = _lastRequestAt;
+      if (lastRequestAt != null) {
+        final elapsed = DateTime.now().difference(lastRequestAt);
+        if (elapsed < _currentInterval) {
+          await Future.delayed(_currentInterval - elapsed);
+        }
+      }
+      _lastRequestAt = DateTime.now();
+    });
+    _gate = next.catchError((_) {});
+    return next;
+  }
+
+  void onSuccess() {
+    _successCount++;
+  }
+
+  void onLimited() {
+    _limitedCount++;
+    _cooledDown = true;
+    final nextMs = (_currentInterval.inMilliseconds * 1.8).round();
+    _currentInterval = Duration(
+      milliseconds: nextMs.clamp(600, 2600).toInt(),
+    );
+  }
+
+  DouyinFollowRefreshSummary finish(int targetCount) {
+    _stopwatch.stop();
+    return DouyinFollowRefreshSummary(
+      targetCount: targetCount,
+      initialConcurrency: initialConcurrency,
+      initialInterval: initialInterval,
+      finalInterval: _currentInterval,
+      successCount: _successCount,
+      limitedCount: _limitedCount,
+      cooledDown: _cooledDown,
+      elapsed: _stopwatch.elapsed,
+    );
+  }
+}
+
+class DouyinFollowRefreshSummary {
+  final int targetCount;
+  final int initialConcurrency;
+  final Duration initialInterval;
+  final Duration finalInterval;
+  final int successCount;
+  final int limitedCount;
+  final bool cooledDown;
+  final Duration elapsed;
+
+  const DouyinFollowRefreshSummary({
+    required this.targetCount,
+    required this.initialConcurrency,
+    required this.initialInterval,
+    required this.finalInterval,
+    required this.successCount,
+    required this.limitedCount,
+    required this.cooledDown,
+    required this.elapsed,
+  });
+}

@@ -300,6 +300,9 @@ class KuaishouSite extends LiveSite {
         }
       }
     }
+    if (items.any((item) => item.online > 0)) {
+      items.sort((a, b) => b.online.compareTo(a.online));
+    }
 
     return LiveCategoryResult(hasMore: false, items: items);
   }

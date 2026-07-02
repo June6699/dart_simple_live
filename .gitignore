@@ -20,6 +20,7 @@ build_tv_apk.bat
 deploy_windows.bat
 tools/build-release.ps1
 tools/build-*.ps1
+!tools/build-release.ps1
 
 # Local temp workspace files
 fix-guide.md
@@ -33,3 +34,4 @@ tmp_*.xml
 *.md
 !README.md
 !**/README.md
+!tools/BUILD_RELEASE.md

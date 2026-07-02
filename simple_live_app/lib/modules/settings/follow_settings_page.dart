@@ -55,6 +55,27 @@ class FollowSettingsPage extends GetView<AppSettingsController> {
                 AppStyle.divider,
                 Obx(
                   () => SettingsMenu<int>(
+                    title: "更新线程数",
+                    value: controller.effectiveUpdateFollowThreadCount,
+                    valueMap: const {
+                      0: "自动",
+                      1: "1",
+                      2: "2",
+                      3: "3",
+                      4: "4",
+                      5: "5",
+                      6: "6",
+                      7: "7",
+                      8: "8",
+                    },
+                    onChanged: (value) {
+                      controller.setUpdateFollowThreadCount(value);
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsMenu<int>(
                     title: "关注每页数量",
                     value: controller.followPageSize.value,
                     valueMap: const {

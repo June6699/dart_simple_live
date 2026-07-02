@@ -23,6 +23,10 @@ class LocalStorageService extends GetxService {
   static const String kLastSearchSiteId = "LastSearchSiteId";
   static const String kFollowGroupMode = "FollowGroupMode";
   static const String kFollowSelectedGroupId = "FollowSelectedGroupId";
+  static const String kFollowDisplayStyle = "FollowDisplayStyle";
+  static const String kFollowOnlyLive = "FollowOnlyLive";
+  static const String kFollowRefreshOnEnter = "FollowRefreshOnEnter";
+  static const String kFollowShowLiveCover = "FollowShowLiveCover";
   static const String kRememberWindowPlacement = "RememberWindowPlacement";
   static const String kDesktopWindowBounds = "DesktopWindowBounds";
   static const String kDesktopWindowMaximized = "DesktopWindowMaximized";
@@ -63,6 +67,8 @@ class LocalStorageService extends GetxService {
   static const String kAllowBackgroundPlayback = "AllowBackgroundPlayback";
   static const String kPlayerBufferSize = "PlayerBufferSize";
   static const String kPlayerForceHttps = "PlayerForceHttps";
+  static const String kPlayerGestureControlEnable =
+      "PlayerGestureControlEnable";
   static const String kAutoSwitchNextOnLiveEnd = "AutoSwitchNextOnLiveEnd";
   static const String kAutoSwitchNextOnPlaybackFailure =
       "AutoSwitchNextOnPlaybackFailure";

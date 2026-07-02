@@ -86,6 +86,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
 bool FlutterWindow::HandleShortcutKeyDown(WPARAM wparam) {
   switch (wparam) {
+    case 'F':
+      return SendShortcutEvent("keyF");
+    case 'D':
+      return SendShortcutEvent("keyD");
+    case 'R':
+      return SendShortcutEvent("keyR");
     case 'M':
       return SendShortcutEvent("keyM");
     default:

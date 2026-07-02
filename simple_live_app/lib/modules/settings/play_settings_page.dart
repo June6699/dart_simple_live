@@ -79,17 +79,6 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                 // ),
                 AppStyle.divider,
                 Obx(
-                  () => SettingsSwitch(
-                    title: "允许后台继续播放",
-                    subtitle: "移动端仍可能被系统省电策略关闭，返回前台时会尽量自动恢复",
-                    value: controller.allowBackgroundPlayback.value,
-                    onChanged: (e) {
-                      controller.setAllowBackgroundPlayback(e);
-                    },
-                  ),
-                ),
-                AppStyle.divider,
-                Obx(
                   () => SettingsMenu<int>(
                     title: "画面尺寸",
                     value: controller.scaleMode.value,
@@ -113,6 +102,28 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     value: controller.playerForceHttps.value,
                     onChanged: (e) {
                       controller.setPlayerForceHttps(e);
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
+                    title: "滑动调节音量/亮度",
+                    subtitle: "播放页左右两侧上下滑动调节亮度和音量",
+                    value: controller.playerGestureControlEnable.value,
+                    onChanged: (e) {
+                      controller.setPlayerGestureControlEnable(e);
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
+                    title: "允许后台继续播放",
+                    subtitle: "移动端仍可能被系统省电策略关闭，返回前台时会尽量自动恢复",
+                    value: controller.allowBackgroundPlayback.value,
+                    onChanged: (e) {
+                      controller.setAllowBackgroundPlayback(e);
                     },
                   ),
                 ),

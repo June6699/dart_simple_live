@@ -4,13 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
+import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/platform_utils.dart';
-import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/modules/follow_user/follow_user_controller.dart';
-import 'package:simple_live_app/routes/app_navigation.dart';
 import 'package:simple_live_app/services/current_room_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/filter_button.dart';
@@ -22,12 +21,26 @@ class FollowUserPage extends GetView<FollowUserController> {
 
   @override
   Widget build(BuildContext context) {
-    var count = MediaQuery.of(context).size.width ~/ 500;
-    if (count < 1) count = 1;
     return Scaffold(
       appBar: AppBar(
         title: const Text("关注用户"),
         actions: [
+          IconButton(
+            tooltip: "搜索主播",
+            onPressed: () => _showSearchDialog(context),
+            icon: Obx(
+              () => Icon(
+                controller.searchKeyword.value.isEmpty
+                    ? Icons.search
+                    : Icons.manage_search,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: "显示与筛选",
+            onPressed: () => _showDisplaySheet(context),
+            icon: const Icon(Icons.tune),
+          ),
           Obx(
             () => Visibility(
               visible: controller.paginationEnabled.value,
@@ -199,7 +212,7 @@ class FollowUserPage extends GetView<FollowUserController> {
                   child: Padding(
                     padding: AppStyle.edgeInsetsH8.copyWith(top: 8),
                     child: Text(
-                      "当前页刷新只处理本页目标；刷新全部会覆盖当前分组全部关注。",
+                      "当前页刷新只处理当前结果；刷新全部会按当前筛选结果执行完整刷新，并在手动时补齐封面与标题。",
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -207,6 +220,9 @@ class FollowUserPage extends GetView<FollowUserController> {
               ),
               Obx(
                 () => _buildRefreshProgress(context),
+              ),
+              Obx(
+                () => _buildActiveFilterBar(context),
               ),
               Padding(
                 padding: AppStyle.edgeInsetsH8,
@@ -256,61 +272,66 @@ class FollowUserPage extends GetView<FollowUserController> {
                 ),
               ),
               Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onHorizontalDragEnd: (details) {
-                    if (!controller.paginationEnabled.value) {
-                      return;
-                    }
-                    final velocity = details.primaryVelocity ?? 0;
-                    if (velocity < -260) {
-                      controller.goToNextPage();
-                    } else if (velocity > 260) {
-                      controller.goToPreviousPage();
-                    }
-                  },
-                  child: PageGridView(
-                    padding: const EdgeInsets.only(bottom: 96.0),
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 4,
-                    mainAxisExtent: 92,
-                    useFixedGrid: true,
-                    crossAxisCount: count,
-                    pageController: controller,
-                    firstRefresh: false,
-                    showPCRefreshButton: false,
-                    itemBuilder: (_, i) {
-                      var item = controller.list[i];
-                      var site = Sites.allSites[item.siteId]!;
-                      final isCurrent = "${item.siteId}_${item.roomId}" ==
-                          CurrentRoomService.instance.currentKey;
-                      return FollowUserItem(
-                        item: item,
-                        onSpecialTap: () {
-                          controller.toggleSpecialFollow(item);
-                        },
-                        onRemove: () {
-                          controller.removeItem(item);
-                        },
-                        onTap: () {
-                          if (PlatformUtils.supportsInlineMultiRoom &&
-                              controller.multiSelectMode.value) {
-                            controller.toggleMultiRoomItem(item);
-                            return;
-                          }
-                          AppNavigator.toLiveRoomDetail(
-                            site: site,
-                            roomId: item.roomId,
+                child: Obx(
+                  () {
+                    final layout = _resolveLayoutSpec(context);
+                    return GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragEnd: (details) {
+                        if (!controller.paginationEnabled.value) {
+                          return;
+                        }
+                        final velocity = details.primaryVelocity ?? 0;
+                        if (velocity < -260) {
+                          controller.goToNextPage();
+                        } else if (velocity > 260) {
+                          controller.goToPreviousPage();
+                        }
+                      },
+                      child: PageGridView(
+                        padding: const EdgeInsets.only(bottom: 96.0),
+                        crossAxisSpacing: layout.crossAxisSpacing,
+                        mainAxisSpacing: layout.mainAxisSpacing,
+                        mainAxisExtent: layout.mainAxisExtent,
+                        childAspectRatio: layout.childAspectRatio,
+                        useFixedGrid: true,
+                        crossAxisCount: layout.crossAxisCount,
+                        pageController: controller,
+                        firstRefresh: false,
+                        showPCRefreshButton: false,
+                        itemBuilder: (_, i) {
+                          final item = controller.list[i];
+                          final isCurrent = "${item.siteId}_${item.roomId}" ==
+                              CurrentRoomService.instance.currentKey;
+                          return FollowUserItem(
+                            item: item,
+                            style: layout.itemStyle,
+                            showLiveCover: AppSettingsController
+                                .instance.followShowLiveCover.value,
+                            onSpecialTap: () {
+                              controller.toggleSpecialFollow(item);
+                            },
+                            onRemove: () {
+                              controller.removeItem(item);
+                            },
+                            onTap: () {
+                              if (PlatformUtils.supportsInlineMultiRoom &&
+                                  controller.multiSelectMode.value) {
+                                controller.toggleMultiRoomItem(item);
+                                return;
+                              }
+                              controller.openFollowRoom(item);
+                            },
+                            onLongPress: () {
+                              setFollowTagDialog(item);
+                            },
+                            playing: controller.isSelectedForMultiRoom(item) ||
+                                isCurrent,
                           );
                         },
-                        onLongPress: () {
-                          setFollowTagDialog(item);
-                        },
-                        playing: controller.isSelectedForMultiRoom(item) ||
-                            isCurrent,
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -327,6 +348,222 @@ class FollowUserPage extends GetView<FollowUserController> {
           ),
         ],
       ),
+    );
+  }
+
+  _FollowLayoutSpec _resolveLayoutSpec(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final style = AppSettingsController.instance.followDisplayStyle.value;
+    final showLiveCover =
+        AppSettingsController.instance.followShowLiveCover.value;
+    final mobile = PlatformUtils.isMobileApp;
+    if (style == "compact") {
+      return _FollowLayoutSpec(
+        itemStyle: FollowUserItemStyle.compactList,
+        crossAxisCount: mobile ? 1 : (width >= 1440 ? 2 : 1),
+        mainAxisExtent:
+            showLiveCover ? (mobile ? 112 : 118) : (mobile ? 70 : 78),
+        childAspectRatio: 3.8,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: showLiveCover ? 10 : 8,
+      );
+    }
+    if (style == "card") {
+      final crossAxisCount = mobile
+          ? (width >= 720 ? 3 : 2)
+          : (width >= 1680 ? 4 : (width >= 1220 ? 3 : 2));
+      return _FollowLayoutSpec(
+        itemStyle: FollowUserItemStyle.card,
+        crossAxisCount: crossAxisCount,
+        mainAxisExtent:
+            showLiveCover ? (mobile ? 238 : 250) : (mobile ? 178 : 190),
+        childAspectRatio: 0.9,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      );
+    }
+    return _FollowLayoutSpec(
+      itemStyle: FollowUserItemStyle.defaultList,
+      crossAxisCount: mobile ? 1 : (width >= 1520 ? 2 : 1),
+      mainAxisExtent: showLiveCover ? (mobile ? 132 : 138) : (mobile ? 82 : 92),
+      childAspectRatio: 3.2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: showLiveCover ? 10 : 8,
+    );
+  }
+
+  Widget _buildActiveFilterBar(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    final chips = <Widget>[];
+    if (controller.searchKeyword.value.isNotEmpty) {
+      chips.add(
+        InputChip(
+          label: Text("搜索：${controller.searchKeyword.value}"),
+          onDeleted: controller.clearSearchKeyword,
+        ),
+      );
+    }
+    if (settings.followOnlyLive.value) {
+      chips.add(
+        InputChip(
+          label: const Text("仅显示开播"),
+          onDeleted: () => controller.setOnlyLive(false),
+        ),
+      );
+    }
+    if (settings.followRefreshOnEnter.value) {
+      chips.add(
+        InputChip(
+          label: const Text("进页自动刷新"),
+          onDeleted: () => controller.setRefreshOnEnter(false),
+        ),
+      );
+    }
+    if (chips.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: AppStyle.edgeInsetsH8.copyWith(bottom: 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: chips,
+      ),
+    );
+  }
+
+  Future<void> _showSearchDialog(BuildContext context) async {
+    final textController = TextEditingController(
+      text: controller.searchKeyword.value,
+    );
+    await Get.dialog(
+      AlertDialog(
+        title: const Text("搜索主播"),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: "只按主播名字本地搜索",
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              onPressed: () {
+                textController.clear();
+              },
+              icon: const Icon(Icons.clear),
+            ),
+          ),
+          onSubmitted: (value) {
+            controller.setSearchKeyword(value);
+            Get.back();
+          },
+        ),
+        actions: [
+          if (controller.searchKeyword.value.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                controller.clearSearchKeyword();
+                Get.back();
+              },
+              child: const Text("清空"),
+            ),
+          TextButton(
+            onPressed: () {
+              Get.back();
+            },
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () {
+              controller.setSearchKeyword(textController.text);
+              Get.back();
+            },
+            child: const Text("搜索"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDisplaySheet(BuildContext context) {
+    Utils.showBottomSheet(
+      title: "显示与筛选",
+      child: Obx(
+        () {
+          final settings = AppSettingsController.instance;
+          return SingleChildScrollView(
+            child: Padding(
+              padding: AppStyle.edgeInsetsH8.copyWith(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text("显示样式"),
+                    subtitle: Text("默认关闭封面时使用头像信息布局，开启后显示直播间封面图"),
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildStyleChip(
+                          "default", "默认", settings.followDisplayStyle.value),
+                      _buildStyleChip(
+                          "compact", "紧凑", settings.followDisplayStyle.value),
+                      _buildStyleChip(
+                          "card", "卡片", settings.followDisplayStyle.value),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text("展示直播封面"),
+                    subtitle: const Text("开启后显示直播间封面图；关闭时只显示主播头像和信息"),
+                    value: settings.followShowLiveCover.value,
+                    onChanged: controller.setShowLiveCover,
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text("仅显示开播"),
+                    subtitle: const Text("在当前平台/状态分组结果上再只保留已开播主播"),
+                    value: settings.followOnlyLive.value,
+                    onChanged: controller.setOnlyLive,
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text("进入关注页后自动刷新"),
+                    subtitle: const Text("先显示本地列表，再异步全量刷新；关注过多时极易触发抖音限制"),
+                    value: settings.followRefreshOnEnter.value,
+                    onChanged: (value) async {
+                      if (value) {
+                        final confirmed = await Utils.showAlertDialog(
+                          "开启后，每次进入关注页都会先显示本地列表，再异步发起一次全量刷新。关注过多时，极其容易触发抖音限制，尤其是抖音关注较多时更明显。",
+                          title: "风险提示",
+                          confirm: "继续开启",
+                        );
+                        if (!confirmed) {
+                          return;
+                        }
+                      }
+                      controller.setRefreshOnEnter(value);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStyleChip(String value, String label, String currentValue) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: currentValue == value,
+      onSelected: (_) {
+        controller.setDisplayStyle(value);
+      },
     );
   }
 
@@ -641,4 +878,22 @@ class FollowUserPage extends GetView<FollowUserController> {
       ),
     );
   }
+}
+
+class _FollowLayoutSpec {
+  final FollowUserItemStyle itemStyle;
+  final int crossAxisCount;
+  final double mainAxisExtent;
+  final double childAspectRatio;
+  final double crossAxisSpacing;
+  final double mainAxisSpacing;
+
+  const _FollowLayoutSpec({
+    required this.itemStyle,
+    required this.crossAxisCount,
+    required this.mainAxisExtent,
+    required this.childAspectRatio,
+    required this.crossAxisSpacing,
+    required this.mainAxisSpacing,
+  });
 }

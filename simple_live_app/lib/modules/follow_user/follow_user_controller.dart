@@ -47,6 +47,7 @@ class FollowUserController extends BasePageController<FollowUser> {
 
   var groupMode = FollowGroupMode.liveStatus.obs;
   var selectedGroupId = "all".obs;
+  var searchKeyword = "".obs;
   var multiSelectMode = false.obs;
   RxSet<String> selectedMultiRoomKeys = <String>{}.obs;
   var currentDisplayPage = 1.obs;
@@ -65,7 +66,7 @@ class FollowUserController extends BasePageController<FollowUser> {
   void onInit() {
     pageSize = AppSettingsController.instance.followPageSize.value;
     _restoreGroupSelection();
-    unawaited(refreshData(forceStatus: false));
+    unawaited(_loadInitialData());
     onUpdatedIndexedStream = EventBus.instance.listen(
       EventBus.kBottomNavigationBarClicked,
       (index) {
@@ -79,6 +80,18 @@ class FollowUserController extends BasePageController<FollowUser> {
       filterData();
     });
     super.onInit();
+  }
+
+  Future<void> _loadInitialData() async {
+    await refreshData(forceStatus: false);
+    if (AppSettingsController.instance.followRefreshOnEnter.value &&
+        FollowService.instance.followList.isNotEmpty) {
+      unawaited(
+        FollowService.instance.startUpdateStatus(force: false).then((_) {
+          filterData();
+        }),
+      );
+    }
   }
 
   void _restoreGroupSelection() {
@@ -102,7 +115,7 @@ class FollowUserController extends BasePageController<FollowUser> {
 
   @override
   Future<List<FollowUser>> getData(int page, int pageSize) async {
-    final items = _filterBySelectedGroup();
+    final items = _buildFilteredList();
     final start = (page - 1) * pageSize;
     if (start >= items.length) {
       return Future.value([]);
@@ -122,7 +135,7 @@ class FollowUserController extends BasePageController<FollowUser> {
   }
 
   void filterData() {
-    final items = _filterBySelectedGroup();
+    final items = _buildFilteredList();
     _rebuildPagedList(items);
     pageEmpty.value = items.isEmpty;
   }
@@ -137,6 +150,7 @@ class FollowUserController extends BasePageController<FollowUser> {
       canLoadMore.value = false;
       list.assignAll(items);
       _scrollToCurrentRoom(_currentRoomIndexIn(items), items.length);
+      _requestVisiblePreviews(items);
       return;
     }
 
@@ -161,6 +175,7 @@ class FollowUserController extends BasePageController<FollowUser> {
     canLoadMore.value = false;
     final currentIndex = _currentRoomIndexIn(list);
     _scrollToCurrentRoom(currentIndex, list.length);
+    _requestVisiblePreviews(list.toList());
   }
 
   List<FollowUser> get currentPageTargets => list.toList();
@@ -173,7 +188,7 @@ class FollowUserController extends BasePageController<FollowUser> {
 
   Future<void> refreshCurrentPageStatus() async {
     final pageItems =
-        paginationEnabled.value ? currentPageTargets : _filterBySelectedGroup();
+        paginationEnabled.value ? currentPageTargets : _buildFilteredList();
     await FollowService.instance.refreshSelectedStatus(
       FollowService.instance.buildPageFrontTargets(pageItems),
       force: true,
@@ -188,7 +203,7 @@ class FollowUserController extends BasePageController<FollowUser> {
 
   Future<void> refreshAllStatus() async {
     await FollowService.instance.refreshSelectedStatus(
-      _filterBySelectedGroup(),
+      _buildFilteredList(),
       includeAllNormals: true,
       force: true,
       scope: const FollowRefreshScope.all(),
@@ -335,6 +350,63 @@ class FollowUserController extends BasePageController<FollowUser> {
     );
   }
 
+  List<FollowUser> _buildFilteredList() {
+    Iterable<FollowUser> items = _filterBySelectedGroup();
+    if (AppSettingsController.instance.followOnlyLive.value) {
+      items = items.where((item) => item.liveStatus.value == 2);
+    }
+    final keyword = searchKeyword.value.trim().toLowerCase();
+    if (keyword.isNotEmpty) {
+      items = items.where(
+        (item) => item.userName.toLowerCase().contains(keyword),
+      );
+    }
+    return FollowService.instance.sortFollowUsers(_distinctFollowUsers(items));
+  }
+
+  void setSearchKeyword(String value) {
+    searchKeyword.value = value.trim();
+    currentDisplayPage.value = 1;
+    filterData();
+  }
+
+  void clearSearchKeyword() {
+    if (searchKeyword.value.isEmpty) {
+      return;
+    }
+    searchKeyword.value = "";
+    currentDisplayPage.value = 1;
+    filterData();
+  }
+
+  void _requestVisiblePreviews(List<FollowUser> items) {
+    if (items.isEmpty ||
+        !AppSettingsController.instance.followShowLiveCover.value) {
+      return;
+    }
+    unawaited(FollowService.instance.refreshVisiblePreviews(items));
+  }
+
+  void setDisplayStyle(String value) {
+    AppSettingsController.instance.setFollowDisplayStyle(value);
+    filterData();
+  }
+
+  void setOnlyLive(bool value) {
+    AppSettingsController.instance.setFollowOnlyLive(value);
+    currentDisplayPage.value = 1;
+    filterData();
+  }
+
+  void setRefreshOnEnter(bool value) {
+    AppSettingsController.instance.setFollowRefreshOnEnter(value);
+  }
+
+  void setShowLiveCover(bool value) {
+    AppSettingsController.instance.setFollowShowLiveCover(value);
+    filterData();
+  }
+
   void setGroupMode(FollowGroupMode mode) {
     groupMode.value = mode;
     selectedGroupId.value = "all";
@@ -434,6 +506,19 @@ class FollowUserController extends BasePageController<FollowUser> {
       !item.isSpecialFollow,
     );
     filterData();
+  }
+
+  Future<void> openFollowRoom(FollowUser item) async {
+    final resolved =
+        await FollowService.instance.resolveFollowBeforeEnter(item);
+    final site = Sites.allSites[resolved.siteId];
+    if (site == null) {
+      return;
+    }
+    AppNavigator.toLiveRoomDetail(
+      site: site,
+      roomId: resolved.roomId,
+    );
   }
 
   // 修改item的标签

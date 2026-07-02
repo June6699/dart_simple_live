@@ -41,6 +41,11 @@ class AppSettingsController extends GetxController {
   static const int kMultiRoomMinGap = 0;
   static const int kMultiRoomMaxGap = 24;
   static const int kShortcutDisabled = 0;
+  static const List<String> followDisplayStyleOptions = [
+    "default",
+    "compact",
+    "card",
+  ];
 
   static final Map<int, String> liveRoomShortcutOptions = {
     kShortcutDisabled: "关闭",
@@ -228,6 +233,10 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kPlayerVolume,
       100.0,
     );
+    playerGestureControlEnable.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kPlayerGestureControlEnable,
+      true,
+    );
     pipHideDanmu.value = _loadPipHideDanmu();
 
     styleColor.value = LocalStorageService.instance
@@ -318,8 +327,12 @@ class AppSettingsController extends GetxController {
     autoUpdateFollowDuration.value = LocalStorageService.instance
         .getValue(LocalStorageService.kUpdateFollowDuration, 10);
 
-    updateFollowThreadCount.value = LocalStorageService.instance.getValue(
-        LocalStorageService.kUpdateFollowThreadCount, 8); // 默认 8，0 = 自动
+    updateFollowThreadCount.value = _normalizeUpdateFollowThreadCount(
+      LocalStorageService.instance.getValue(
+        LocalStorageService.kUpdateFollowThreadCount,
+        0,
+      ),
+    );
     followPageSize.value = _normalizeFollowPageSize(
       LocalStorageService.instance.getValue(
         LocalStorageService.kFollowPageSize,
@@ -339,6 +352,24 @@ class AppSettingsController extends GetxController {
     followSelectedGroupId.value = LocalStorageService.instance.getValue(
       LocalStorageService.kFollowSelectedGroupId,
       "all",
+    );
+    followDisplayStyle.value = _normalizeFollowDisplayStyle(
+      LocalStorageService.instance.getValue(
+        LocalStorageService.kFollowDisplayStyle,
+        "default",
+      ),
+    );
+    followOnlyLive.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowOnlyLive,
+      false,
+    );
+    followRefreshOnEnter.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowRefreshOnEnter,
+      false,
+    );
+    followShowLiveCover.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowShowLiveCover,
+      false,
     );
 
     rememberWindowPlacement.value = LocalStorageService.instance.getValue(
@@ -1921,6 +1952,17 @@ class AppSettingsController extends GetxController {
 
   var followGroupMode = "liveStatus".obs;
   var followSelectedGroupId = "all".obs;
+  var followDisplayStyle = "default".obs;
+  var followOnlyLive = false.obs;
+  var followRefreshOnEnter = false.obs;
+  var followShowLiveCover = false.obs;
+
+  String _normalizeFollowDisplayStyle(String value) {
+    if (followDisplayStyleOptions.contains(value)) {
+      return value;
+    }
+    return "default";
+  }
 
   void setFollowGroupSelection({
     required String mode,
@@ -1935,6 +1977,39 @@ class AppSettingsController extends GetxController {
     LocalStorageService.instance.setValue(
       LocalStorageService.kFollowSelectedGroupId,
       groupId,
+    );
+  }
+
+  void setFollowDisplayStyle(String value) {
+    final normalized = _normalizeFollowDisplayStyle(value);
+    followDisplayStyle.value = normalized;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowDisplayStyle,
+      normalized,
+    );
+  }
+
+  void setFollowOnlyLive(bool value) {
+    followOnlyLive.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowOnlyLive,
+      value,
+    );
+  }
+
+  void setFollowRefreshOnEnter(bool value) {
+    followRefreshOnEnter.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowRefreshOnEnter,
+      value,
+    );
+  }
+
+  void setFollowShowLiveCover(bool value) {
+    followShowLiveCover.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowShowLiveCover,
+      value,
     );
   }
 
@@ -2030,6 +2105,15 @@ class AppSettingsController extends GetxController {
     playerVolume.value = value;
     LocalStorageService.instance.setValue(
       LocalStorageService.kPlayerVolume,
+      value,
+    );
+  }
+
+  var playerGestureControlEnable = true.obs;
+  void setPlayerGestureControlEnable(bool value) {
+    playerGestureControlEnable.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kPlayerGestureControlEnable,
       value,
     );
   }
@@ -2365,11 +2449,18 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kUpdateFollowDuration, e);
   }
 
-  var updateFollowThreadCount = 8.obs;
+  var updateFollowThreadCount = 0.obs;
+  int get effectiveUpdateFollowThreadCount =>
+      _normalizeUpdateFollowThreadCount(updateFollowThreadCount.value);
+  int _normalizeUpdateFollowThreadCount(int value) {
+    return value.clamp(0, 8).toInt();
+  }
+
   void setUpdateFollowThreadCount(int e) {
-    updateFollowThreadCount.value = e;
+    final value = _normalizeUpdateFollowThreadCount(e);
+    updateFollowThreadCount.value = value;
     LocalStorageService.instance
-        .setValue(LocalStorageService.kUpdateFollowThreadCount, e);
+        .setValue(LocalStorageService.kUpdateFollowThreadCount, value);
   }
 
   static const int kFollowPageSizeDefault = 200;

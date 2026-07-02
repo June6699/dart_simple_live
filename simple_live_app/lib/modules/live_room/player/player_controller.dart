@@ -1023,6 +1023,9 @@ mixin PlayerGestureControlMixin
     if (lockControlsState.value && fullScreenState.value) {
       return;
     }
+    if (!AppSettingsController.instance.playerGestureControlEnable.value) {
+      return;
+    }
 
     final dy = details.globalPosition.dy;
     // 开始位置必须是中间2/4的位置
@@ -1044,20 +1047,38 @@ mixin PlayerGestureControlMixin
         Platform.isLinux) {
       showGestureTip.value = true;
     }
-    if (Platform.isAndroid ||
-        Platform.isIOS ||
-        Platform.isWindows ||
-        Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux) {
+      final currentPlayerVolume = player.state.volume;
+      if (currentPlayerVolume > 0) {
+        _currentVolume = currentPlayerVolume.clamp(0.0, 100.0) / 100;
+      } else {
+        _currentVolume =
+            AppSettingsController.instance.playerVolume.value.clamp(0.0, 100.0) /
+                100;
+      }
+    } else if (Platform.isAndroid || Platform.isIOS) {
       _currentVolume = await VolumeController.instance.getVolume();
     }
-    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
-      _currentBrightness = await ScreenBrightness.instance.application;
+    if (Platform.isAndroid ||
+        Platform.isIOS ||
+        Platform.isMacOS ||
+        Platform.isWindows ||
+        Platform.isLinux) {
+      try {
+        _currentBrightness = await ScreenBrightness.instance.application;
+      } catch (e) {
+        Log.logPrint(e);
+        _currentBrightness = 1.0;
+      }
     }
   }
 
   /// 竖向手势更新
   void onVerticalDragUpdate(DragUpdateDetails e) async {
     if (lockControlsState.value && fullScreenState.value) {
+      return;
+    }
+    if (!AppSettingsController.instance.playerGestureControlEnable.value) {
       return;
     }
     if (verticalDragging == false) return;
@@ -1152,6 +1173,9 @@ mixin PlayerGestureControlMixin
   /// 竖向手势完成
   void onVerticalDragEnd(DragEndDetails details) async {
     if (lockControlsState.value && fullScreenState.value) {
+      return;
+    }
+    if (!AppSettingsController.instance.playerGestureControlEnable.value) {
       return;
     }
     throttle = null;

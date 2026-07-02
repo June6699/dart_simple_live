@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:media_kit/media_kit.dart';
@@ -22,6 +23,7 @@ import 'package:simple_live_tv_app/modules/live_room/player/player_controller.da
 import 'package:simple_live_tv_app/services/current_room_service.dart';
 import 'package:simple_live_tv_app/services/db_service.dart';
 import 'package:simple_live_tv_app/services/follow_user_service.dart';
+import 'package:window_manager/window_manager.dart';
 
 class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   final Site pSite;
@@ -46,7 +48,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var followed = false.obs;
   var specialFollowed = false.obs;
   var liveStatus = false.obs;
+  var muted = false.obs;
   bool _autoSwitchingRoom = false;
+  String _lastShortcutKey = "";
+  String _lastShortcutSource = "";
+  DateTime? _lastShortcutHandledAt;
 
   /// 清晰度数据
   RxList<LivePlayQuality> qualites = RxList<LivePlayQuality>();
@@ -121,6 +127,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         false;
 
     loadData();
+    unawaited(syncDesktopFullscreenState());
 
     super.onInit();
   }
@@ -178,6 +185,96 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     _clearDanmuDedupeState();
 
     loadData();
+  }
+
+  Future<void> syncDesktopFullscreenState() async {
+    if (!Platform.isWindows) {
+      fullScreenState.value = false;
+      return;
+    }
+    try {
+      fullScreenState.value = await windowManager.isFullScreen();
+    } catch (e) {
+      Log.logPrint(e);
+    }
+  }
+
+  Future<void> toggleDesktopFullscreen() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      final nextValue = !await windowManager.isFullScreen();
+      await windowManager.setFullScreen(nextValue);
+      fullScreenState.value = nextValue;
+      SmartDialog.showToast(nextValue ? "已进入全屏" : "已退出全屏");
+    } catch (e) {
+      Log.logPrint(e);
+      SmartDialog.showToast("切换全屏失败");
+    }
+  }
+
+  void toggleDanmaku() {
+    showDanmakuState.value = !showDanmakuState.value;
+    AppSettingsController.instance.setDanmuEnable(showDanmakuState.value);
+    SmartDialog.showToast(showDanmakuState.value ? "弹幕已开启" : "弹幕已关闭");
+  }
+
+  Future<void> toggleMute() async {
+    muted.value = !muted.value;
+    await player.setVolume(muted.value ? 0 : 100);
+    SmartDialog.showToast(muted.value ? "已静音" : "已恢复声音");
+  }
+
+  bool handleDesktopShortcut(
+    String key, {
+    required String source,
+  }) {
+    final now = DateTime.now();
+    if (_lastShortcutKey == key &&
+        _lastShortcutSource != source &&
+        _lastShortcutHandledAt != null &&
+        now.difference(_lastShortcutHandledAt!) <
+            const Duration(milliseconds: 160)) {
+      _lastShortcutHandledAt = now;
+      _lastShortcutSource = source;
+      return true;
+    }
+    _lastShortcutKey = key;
+    _lastShortcutSource = source;
+    _lastShortcutHandledAt = now;
+    switch (key) {
+      case "keyF":
+        unawaited(toggleDesktopFullscreen());
+        return true;
+      case "keyD":
+        toggleDanmaku();
+        return true;
+      case "keyR":
+        refreshRoom();
+        return true;
+      case "keyM":
+        unawaited(toggleMute());
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool handleKeyboardShortcut(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.keyF) {
+      return handleDesktopShortcut("keyF", source: "keyboard");
+    }
+    if (key == LogicalKeyboardKey.keyD) {
+      return handleDesktopShortcut("keyD", source: "keyboard");
+    }
+    if (key == LogicalKeyboardKey.keyR) {
+      return handleDesktopShortcut("keyR", source: "keyboard");
+    }
+    if (key == LogicalKeyboardKey.keyM) {
+      return handleDesktopShortcut("keyM", source: "keyboard");
+    }
+    return false;
   }
 
   void showAutoExitSheet() {
@@ -606,6 +703,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         httpHeaders: playHeaders,
       ),
     );
+    await player.setVolume(muted.value ? 0 : 100);
 
     Log.d("播放链接\r\n：${playUrls[currentLineIndex]}");
   }

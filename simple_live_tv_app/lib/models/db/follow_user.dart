@@ -13,6 +13,9 @@ class FollowUser {
     required this.face,
     required this.addTime,
     this.isSpecialFollow = false,
+    this.roomTitle = "",
+    this.roomCover = "",
+    this.previewUpdatedAt,
   });
 
   ///id=siteId_roomId
@@ -37,6 +40,15 @@ class FollowUser {
   @HiveField(6)
   bool isSpecialFollow;
 
+  @HiveField(7)
+  String roomTitle;
+
+  @HiveField(8)
+  String roomCover;
+
+  @HiveField(9)
+  DateTime? previewUpdatedAt;
+
   /// 直播状态
   /// 0=未知(加载中) 1=未开播 2=直播中
   Rx<int> liveStatus = 0.obs;
@@ -57,6 +69,10 @@ class FollowUser {
           DateTime.now(),
       isSpecialFollow:
           json["isSpecialFollow"] == true || json["isSpecialFollow"] == 1,
+      roomTitle: json["roomTitle"]?.toString() ?? "",
+      roomCover: json["roomCover"]?.toString() ?? "",
+      previewUpdatedAt:
+          DateTime.tryParse(json["previewUpdatedAt"]?.toString() ?? ""),
     );
   }
 
@@ -68,5 +84,8 @@ class FollowUser {
         'face': face,
         'addTime': addTime.toString(),
         'isSpecialFollow': isSpecialFollow,
+        'roomTitle': roomTitle,
+        'roomCover': roomCover,
+        'previewUpdatedAt': previewUpdatedAt?.toIso8601String() ?? "",
       };
 }

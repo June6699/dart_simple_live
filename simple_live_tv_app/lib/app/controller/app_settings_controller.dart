@@ -33,16 +33,20 @@ class AppSettingsController extends GetxController {
     0,
     1,
     2,
+    3,
     4,
+    5,
     6,
+    7,
     8,
-    12,
-    16,
-    24,
-    32,
   ];
   static const int kFollowPageSizeDefault = 200;
   static const int kFollowPageSizeMin = 2;
+  static const List<String> followDisplayStyleOptions = [
+    "default",
+    "compact",
+    "card",
+  ];
 
   /// 缩放模式
   var scaleMode = 0.obs;
@@ -222,6 +226,24 @@ class AppSettingsController extends GetxController {
         LocalStorageService.kFollowPageSize,
         kFollowPageSizeDefault,
       ),
+    );
+    followDisplayStyle.value = _normalizeFollowDisplayStyle(
+      LocalStorageService.instance.getValue(
+        LocalStorageService.kFollowDisplayStyle,
+        "default",
+      ),
+    );
+    followOnlyLive.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowOnlyLive,
+      false,
+    );
+    followRefreshOnEnter.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowRefreshOnEnter,
+      false,
+    );
+    followShowLiveCover.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowShowLiveCover,
+      false,
     );
     multiRoomGap.value = _normalizeMultiRoomGap(
       LocalStorageService.instance.getValue(
@@ -659,6 +681,51 @@ class AppSettingsController extends GetxController {
     LocalStorageService.instance.setValue(
       LocalStorageService.kFollowPageSize,
       normalized,
+    );
+  }
+
+  var followDisplayStyle = "default".obs;
+  var followOnlyLive = false.obs;
+  var followRefreshOnEnter = false.obs;
+  var followShowLiveCover = false.obs;
+
+  String _normalizeFollowDisplayStyle(String value) {
+    if (followDisplayStyleOptions.contains(value)) {
+      return value;
+    }
+    return "default";
+  }
+
+  void setFollowDisplayStyle(String value) {
+    final normalized = _normalizeFollowDisplayStyle(value);
+    followDisplayStyle.value = normalized;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowDisplayStyle,
+      normalized,
+    );
+  }
+
+  void setFollowOnlyLive(bool value) {
+    followOnlyLive.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowOnlyLive,
+      value,
+    );
+  }
+
+  void setFollowRefreshOnEnter(bool value) {
+    followRefreshOnEnter.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowRefreshOnEnter,
+      value,
+    );
+  }
+
+  void setFollowShowLiveCover(bool value) {
+    followShowLiveCover.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowShowLiveCover,
+      value,
     );
   }
 

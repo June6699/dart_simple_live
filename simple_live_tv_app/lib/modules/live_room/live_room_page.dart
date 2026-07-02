@@ -62,9 +62,12 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       return;
     }
 
+    if (controller.handleKeyboardShortcut(key.logicalKey)) {
+      return;
+    }
+
     // 点击Menu打开/关闭设置
-    if (key.logicalKey == LogicalKeyboardKey.keyM ||
-        key.logicalKey == LogicalKeyboardKey.contextMenu ||
+    if (key.logicalKey == LogicalKeyboardKey.contextMenu ||
         key.logicalKey == LogicalKeyboardKey.arrowRight) {
       showPlayerSettings(controller);
       return;

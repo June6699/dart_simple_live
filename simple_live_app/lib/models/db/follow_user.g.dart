@@ -25,13 +25,16 @@ class FollowUserAdapter extends TypeAdapter<FollowUser> {
       addTime: fields[5] as DateTime,
       tag: fields[6] ?? "全部",
       isSpecialFollow: fields[7] as bool? ?? false,
+      roomTitle: fields[8] as String? ?? "",
+      roomCover: fields[9] as String? ?? "",
+      previewUpdatedAt: fields[10] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, FollowUser obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -47,7 +50,13 @@ class FollowUserAdapter extends TypeAdapter<FollowUser> {
       ..writeByte(6)
       ..write(obj.tag)
       ..writeByte(7)
-      ..write(obj.isSpecialFollow);
+      ..write(obj.isSpecialFollow)
+      ..writeByte(8)
+      ..write(obj.roomTitle)
+      ..writeByte(9)
+      ..write(obj.roomCover)
+      ..writeByte(10)
+      ..write(obj.previewUpdatedAt);
   }
 
   @override
