@@ -1042,38 +1042,15 @@ class LiveRoomController extends PlayerController
     autoExitTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       countdown.value -= 1;
       if (countdown.value <= 0) {
-        timer = Timer(const Duration(seconds: 10), () async {
-          await WakelockPlus.disable();
-          if (Platform.isWindows) {
-            await windowManager.setPreventClose(false);
-          }
-          await windowManager.close();
-        });
         autoExitTimer?.cancel();
-        var delay = await Utils.showAlertDialog(
-          "定时关闭时间已到，是否延迟关闭？",
-          title: "延迟关闭",
-          confirm: "延迟",
-          cancel: "关闭",
-          selectable: true,
-        );
-        if (delay) {
-          timer.cancel();
-          delayAutoExit.value = true;
-          showAutoExitSheet();
-          setAutoExit();
-        } else {
-          delayAutoExit.value = false;
-          await WakelockPlus.disable();
-          if (Platform.isWindows) {
-            await windowManager.setPreventClose(false);
-          }
-          await windowManager.close();
+        await WakelockPlus.disable();
+        if (Platform.isWindows) {
+          await windowManager.setPreventClose(false);
         }
+        await windowManager.close();
       }
     });
   }
-
   void stopAutoExit() {
     autoExitEnable.value = false;
     autoExitTimer?.cancel();

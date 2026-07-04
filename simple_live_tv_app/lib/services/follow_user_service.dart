@@ -65,8 +65,8 @@ class FollowUserService extends BasePageController<FollowUser> {
   }
 
   void initTimer() {
+    updateTimer?.cancel();
     if (AppSettingsController.instance.autoUpdateFollowEnable.value) {
-      updateTimer?.cancel();
       updateTimer = Timer.periodic(
         Duration(
           minutes:
@@ -78,12 +78,25 @@ class FollowUserService extends BasePageController<FollowUser> {
             return;
           }
           Log.logPrint("Update Follow Timer");
-          refreshData(forceStatus: false);
+          unawaited(_startAutomaticRefresh());
         },
       );
     } else {
-      updateTimer?.cancel();
+      updateTimer = null;
     }
+  }
+
+  Future<void> _startAutomaticRefresh() async {
+    loadLocalList();
+    final targets = _buildRefreshTargets(allList, includeAllNormals: true);
+    if (targets.isEmpty) {
+      return;
+    }
+    await startUpdateStatus(
+      targets,
+      force: false,
+      scope: const FollowRefreshScope.all(automatic: true),
+    );
   }
 
   void loadLocalList() {
@@ -915,6 +928,7 @@ class FollowUserService extends BasePageController<FollowUser> {
       if (generation != _updateGeneration) {
         return;
       }
+      sortList();
       if (douyinLimiter != null) {
         final summary = douyinLimiter.finish(douyinTargetCount);
         Log.logPrint(
@@ -1055,6 +1069,7 @@ class FollowUserService extends BasePageController<FollowUser> {
         douyinLimiter.onSuccess();
       }
       item.liveStatus.value = isLiving ? 2 : 1;
+      await DBService.instance.addFollow(item);
       return const _FollowRefreshItemResult(_FollowRefreshItemOutcome.success);
     } catch (e) {
       if (generation != null && generation != _updateGeneration) {

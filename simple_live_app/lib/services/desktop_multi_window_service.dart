@@ -13,7 +13,7 @@ class DesktopMultiWindowService {
 
   static final Set<int> _openedProcessIds = <int>{};
 
-  static bool get isSupported => Platform.isWindows;
+  static bool get isSupported => Platform.isWindows || Platform.isMacOS;
 
   static bool get hasOpenedRooms => _openedProcessIds.isNotEmpty;
 

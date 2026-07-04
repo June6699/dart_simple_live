@@ -359,6 +359,7 @@ class SettingsPage extends GetView<SettingsController> {
               AppSettingsController.instance.autoUpdateFollowDuration.value,
             ),
             leading: const Icon(Icons.timer_outlined),
+            trailing: const Icon(Icons.chevron_right),
             onTap: () {
               setFollowUpdateTimer(context);
             },

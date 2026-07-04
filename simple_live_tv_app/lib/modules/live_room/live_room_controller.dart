@@ -153,25 +153,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       countdown.value -= 1;
       if (countdown.value <= 0) {
         autoExitTimer?.cancel();
-        final delay = await Utils.showAlertDialog(
-          "定时关闭时间已到，是否延迟关闭？",
-          title: "延迟关闭",
-          confirm: "延迟",
-          cancel: "关闭",
-          selectable: true,
-        );
-        if (delay) {
-          delayAutoExit.value = true;
-          showAutoExitSheet();
-          setAutoExit();
-        } else {
-          delayAutoExit.value = false;
-          exit(0);
+        await WakelockPlus.disable();
+        if (Platform.isWindows) {
+          await windowManager.setPreventClose(false);
         }
+        await windowManager.close();
       }
     });
   }
-
   void stopAutoExit() {
     autoExitEnable.value = false;
     autoExitTimer?.cancel();
