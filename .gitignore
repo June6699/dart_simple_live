@@ -13,6 +13,7 @@ issue_logs/
 experience/
 graphify-out/
 **/android/app/build/
+tools/
 
 # Local scripts
 build_android_apk.bat
