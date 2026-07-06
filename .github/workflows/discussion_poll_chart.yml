@@ -1,0 +1,31 @@
+name: discussion-poll-chart
+
+on:
+  workflow_dispatch:
+    inputs:
+      discussion_number:
+        description: "Discussion number"
+        type: number
+        default: 68
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  discussions: write
+  contents: read
+
+jobs:
+  update-poll-chart:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update discussion poll chart comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          DISCUSSION_NUMBER: ${{ github.event.inputs.discussion_number || 68 }}
+          OUTPUT_PATH: poll-comment.md
+        run: node .github/scripts/update-discussion-poll-chart.js
