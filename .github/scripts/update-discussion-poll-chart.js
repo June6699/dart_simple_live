@@ -102,6 +102,26 @@ async function removeDuplicateComments(comments, keepId) {
   }
 }
 
+async function createManagedComment(discussionId, body) {
+  const result = await graphql(addMutation, { discussionId, body });
+  console.log(`Created poll chart comment: ${result.addDiscussionComment.comment.id}`);
+  return result.addDiscussionComment.comment.id;
+}
+
+async function replaceManagedComments(discussionId, body, comments, reason) {
+  const blocked = comments.filter((comment) => !comment.viewerCanDelete);
+  if (blocked.length) {
+    throw new Error(`${reason} Current token also cannot delete the existing poll chart comment(s). Configure DISCUSSION_BOT_TOKEN with permission to edit or delete the original comment.`);
+  }
+
+  for (const comment of comments) {
+    await graphql(deleteMutation, { commentId: comment.id });
+    console.log(`Deleted stale poll chart comment: ${comment.id}`);
+  }
+
+  return createManagedComment(discussionId, body);
+}
+
 const query = `
 query($owner:String!, $repo:String!, $number:Int!) {
   repository(owner:$owner, name:$repo) {
@@ -173,8 +193,7 @@ mutation($commentId:ID!) {
   const editable = managedComments.find((comment) => comment.viewerCanUpdate);
 
   if (!managedComments.length) {
-    const result = await graphql(addMutation, { discussionId: discussion.id, body });
-    console.log(`Created poll chart comment: ${result.addDiscussionComment.comment.id}`);
+    await createManagedComment(discussion.id, body);
     return;
   }
 
@@ -184,7 +203,13 @@ mutation($commentId:ID!) {
       console.log(`Managed comment ${current.id} already has the latest poll data; skipped timestamp-only refresh.`);
       return;
     }
-    throw new Error("Found an existing poll chart comment, but the current token cannot update it. Configure DISCUSSION_BOT_TOKEN with permission to edit the original comment instead of creating duplicate comments.");
+    await replaceManagedComments(
+      discussion.id,
+      body,
+      managedComments,
+      "Found an existing stale poll chart comment, but the current token cannot update it.",
+    );
+    return;
   }
 
   try {
@@ -198,7 +223,13 @@ mutation($commentId:ID!) {
       console.log(`Managed comment ${editable.id} already has the latest poll data; skipped after update permission failure.`);
       return;
     }
-    throw new Error(`Unable to update managed comment ${editable.id}. Configure DISCUSSION_BOT_TOKEN with permission to edit the original comment.`);
+    await replaceManagedComments(
+      discussion.id,
+      body,
+      managedComments,
+      `Unable to update managed comment ${editable.id}.`,
+    );
+    return;
   }
 
   await removeDuplicateComments(managedComments, editable.id);
