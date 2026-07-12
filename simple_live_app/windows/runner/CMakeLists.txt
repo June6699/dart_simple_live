@@ -40,11 +40,9 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
 set(NATIVE_ASSETS_DIR "${CMAKE_SOURCE_DIR}/../build/native_assets/windows")
-if(EXISTS "${NATIVE_ASSETS_DIR}")
-  add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-      "${NATIVE_ASSETS_DIR}"
-      "$<TARGET_FILE_DIR:${BINARY_NAME}>"
-    COMMENT "Copy native assets for ${BINARY_NAME}"
-    VERBATIM)
-endif()
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${NATIVE_ASSETS_DIR}/dart_quickjs.dll"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/dart_quickjs.dll"
+  COMMENT "Copy required dart_quickjs native asset"
+  VERBATIM)

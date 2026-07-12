@@ -44,6 +44,8 @@ class FollowUserService extends BasePageController<FollowUser> {
   bool needUpdate = true;
   int _updateGeneration = 0;
   DateTime? _lastUpdateStatusStartedAt;
+  DateTime? _lastEnterRefreshAt;
+  bool _enterRefreshInFlight = false;
   bool _forceNextStatusRefresh = false;
 
   FollowUserService() {
@@ -101,7 +103,10 @@ class FollowUserService extends BasePageController<FollowUser> {
 
   void loadLocalList() {
     pageSize = AppSettingsController.instance.followPageSize.value;
-    allList.assignAll(_sortFollowUsers(DBService.instance.getFollowList()));
+    allList.assignAll(
+      _sortFollowUsers(
+          _distinctFollowUsers(DBService.instance.getFollowList())),
+    );
     updateLivingList();
     sortList();
     if (allList.isEmpty) {
@@ -111,15 +116,26 @@ class FollowUserService extends BasePageController<FollowUser> {
 
   Future<void> onFollowPageEntered() async {
     loadLocalList();
-    if (AppSettingsController.instance.followRefreshOnEnter.value &&
-        allList.isNotEmpty &&
-        !updating.value) {
+    final now = DateTime.now();
+    final shouldRefresh =
+        AppSettingsController.instance.followRefreshOnEnter.value &&
+            allList.isNotEmpty &&
+            !updating.value &&
+            !_enterRefreshInFlight &&
+            (_lastEnterRefreshAt == null ||
+                now.difference(_lastEnterRefreshAt!) >=
+                    BasePageController.refreshCooldown);
+    if (shouldRefresh) {
+      _lastEnterRefreshAt = now;
+      _enterRefreshInFlight = true;
+      final refreshFuture = startUpdateStatus(
+        _buildRefreshTargets(allList, includeAllNormals: true),
+        force: false,
+        scope: const FollowRefreshScope.all(automatic: true),
+      );
+      // Keep rapid route rebuilds from launching a second full refresh.
       unawaited(
-        startUpdateStatus(
-          _buildRefreshTargets(allList, includeAllNormals: true),
-          force: false,
-          scope: const FollowRefreshScope.all(automatic: true),
-        ),
+        refreshFuture.whenComplete(() => _enterRefreshInFlight = false),
       );
     }
   }
@@ -327,9 +343,10 @@ class FollowUserService extends BasePageController<FollowUser> {
     final result = <FollowUser>[];
     final seenIds = <String>{};
     for (final item in items) {
-      final uniqueId = item.id.trim().isNotEmpty
-          ? item.id.trim()
-          : "${item.siteId}_${item.roomId}";
+      final siteId = item.siteId.trim();
+      final roomId = item.roomId.trim();
+      final uniqueId =
+          siteId.isEmpty || roomId.isEmpty ? item.id.trim() : "$siteId|$roomId";
       if (seenIds.add(uniqueId)) {
         result.add(item);
       }

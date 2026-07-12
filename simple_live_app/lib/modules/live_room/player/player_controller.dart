@@ -25,6 +25,8 @@ import 'package:simple_live_app/services/mpv_options_service.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
+const _windowsChromeChannel = MethodChannel('simple_live/windows_chrome');
+
 class _DanmakuReplayEntry {
   final String message;
   final Color color;
@@ -125,6 +127,7 @@ mixin PlayerStateMixin on PlayerMixin {
 
   /// 是否处于锁定控制器状态
   RxBool lockControlsState = false.obs;
+  RxBool showLockEdgeState = false.obs;
 
   /// 是否处于全屏状态
   RxBool fullScreenState = false.obs;
@@ -178,6 +181,7 @@ mixin PlayerStateMixin on PlayerMixin {
 
   void setLockState() {
     lockControlsState.value = !lockControlsState.value;
+    showLockEdgeState.value = false;
     if (lockControlsState.value) {
       showControlsState.value = false;
     } else {
@@ -460,13 +464,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       }
     } else {
       _windowMaximizedBeforeFullScreen = await windowManager.isMaximized();
-      if (_windowMaximizedBeforeFullScreen) {
-        await windowManager.restore();
-        await _waitForWindowMaximizedState(false);
-        await Future.delayed(const Duration(milliseconds: 240));
-      }
       await _applyWindowsFullScreenChrome();
-      await Future.delayed(const Duration(milliseconds: 16));
       await windowManager.setFullScreen(true);
       await _waitForWindowsFullScreenState(true);
       await _applyWindowsFullScreenChrome();
@@ -598,10 +596,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
 
     try {
-      await windowManager.setAsFrameless();
-      await windowManager.setResizable(false);
-      await windowManager.setHasShadow(false);
-      await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+      await _windowsChromeChannel.invokeMethod<void>('apply');
     } catch (e) {
       Log.logPrint(e);
     }
@@ -614,9 +609,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
 
     try {
-      await windowManager.setResizable(true);
-      await windowManager.setHasShadow(true);
-      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+      await _windowsChromeChannel.invokeMethod<void>('restore');
     } catch (e) {
       Log.logPrint(e);
     }
@@ -974,6 +967,9 @@ mixin PlayerGestureControlMixin
   void onEnter(PointerEnterEvent event) {
     showMouseCursor();
     resetHideMouseCursorTimer();
+    if (lockControlsState.value) {
+      return;
+    }
     if (!showControlsState.value) {
       showControls();
     }
@@ -982,6 +978,10 @@ mixin PlayerGestureControlMixin
   void onExit(PointerExitEvent event) {
     hideMouseCursorTimer?.cancel();
     hideControlsTimer?.cancel();
+    showLockEdgeState.value = false;
+    if (lockControlsState.value) {
+      return;
+    }
     if (!showControlsState.value) {
       return;
     }
@@ -998,6 +998,14 @@ mixin PlayerGestureControlMixin
   void onHover(PointerHoverEvent event, BuildContext context) {
     showMouseCursor();
     resetHideMouseCursorTimer();
+    if (lockControlsState.value) {
+      final width = context.size?.width ?? 0;
+      showLockEdgeState.value = fullScreenState.value &&
+          width > 0 &&
+          (event.localPosition.dx <= 48 ||
+              event.localPosition.dx >= width - 48);
+      return;
+    }
     resetHideControlsTimer();
     if (!showControlsState.value) {
       showControls();

@@ -137,7 +137,7 @@ class BiliBiliSite implements LiveSite {
   Future<List<LivePlayQuality>> getPlayQualites({
     required LiveRoomDetail detail,
   }) async {
-    List<LivePlayQuality> qualities = [];
+    final qualities = <LivePlayQuality>[];
     var result = await _getRoomPlayInfo(
       queryParameters: {
         "room_id": detail.roomId,
@@ -147,21 +147,53 @@ class BiliBiliSite implements LiveSite {
         "platform": "web",
       },
     );
+    final playUrl = _readBilibiliPlayUrl(result, detail.roomId);
     var qualitiesMap = <int, String>{};
-    for (var item in result["data"]["playurl_info"]["playurl"]["g_qn_desc"]) {
+    for (var item in (playUrl["g_qn_desc"] as List?) ?? const []) {
       qualitiesMap[int.tryParse(item["qn"].toString()) ?? 0] = item["desc"]
           .toString();
     }
 
-    for (var item
-        in result["data"]["playurl_info"]["playurl"]["stream"][0]["format"][0]["codec"][0]["accept_qn"]) {
+    final streams = (playUrl["stream"] as List?) ?? const [];
+    final formats = streams.isEmpty
+        ? const []
+        : (streams.first["format"] as List?) ?? const [];
+    final codecs = formats.isEmpty
+        ? const []
+        : (formats.first["codec"] as List?) ?? const [];
+    final accepted = codecs.isEmpty
+        ? const []
+        : (codecs.first["accept_qn"] as List?) ?? const [];
+    for (var item in accepted) {
       var qualityItem = LivePlayQuality(
         quality: qualitiesMap[item] ?? "未知清晰度",
         data: item,
       );
       qualities.add(qualityItem);
     }
+    if (qualities.isEmpty) {
+      CoreLog.w("B站播放信息未返回清晰度：roomId=${detail.roomId}");
+      throw CoreError("B站暂时无法获取播放清晰度，请稍后重试");
+    }
     return qualities;
+  }
+
+  Map _readBilibiliPlayUrl(dynamic result, String roomId) {
+    try {
+      final data = result is Map ? result["data"] : null;
+      final playUrlInfo = data is Map ? data["playurl_info"] : null;
+      final playUrl = playUrlInfo is Map ? playUrlInfo["playurl"] : null;
+      if (playUrl is Map) {
+        return playUrl;
+      }
+    } catch (_) {
+      // The structured error below is more useful than a type-cast exception.
+    }
+    CoreLog.w(
+      "B站播放信息响应结构异常：roomId=$roomId "
+      "responseType=${result.runtimeType}",
+    );
+    throw CoreError("B站播放信息响应异常，请稍后重试");
   }
 
   @override
@@ -240,6 +272,10 @@ class BiliBiliSite implements LiveSite {
           await Future.delayed(delay);
           continue;
         }
+        CoreLog.w(
+          "B站播放信息获取失败：roomId=${queryParameters["room_id"]} "
+          "attempt=${attempt + 1}/${retryDelays.length + 1} error=$e",
+        );
         rethrow;
       }
     }

@@ -49,6 +49,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var followed = false.obs;
   var specialFollowed = false.obs;
   var liveStatus = false.obs;
+  var playbackLoadError = "".obs;
   var muted = false.obs;
   bool _autoSwitchingRoom = false;
   String _lastShortcutKey = "";
@@ -78,6 +79,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var countdown = 60.obs;
 
   Timer? autoExitTimer;
+  DateTime? _autoExitDeadline;
+  bool _autoExitCompleting = false;
 
   /// 设置的自动关闭时长，单位分钟
   var autoExitMinutes = 60.obs;
@@ -146,26 +149,63 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void setAutoExit() {
     if (!autoExitEnable.value) {
       autoExitTimer?.cancel();
+      _autoExitDeadline = null;
       return;
     }
     autoExitTimer?.cancel();
-    countdown.value = autoExitMinutes.value * 60;
-    autoExitTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      countdown.value -= 1;
-      if (countdown.value <= 0) {
-        autoExitTimer?.cancel();
-        await WakelockPlus.disable();
+    _autoExitCompleting = false;
+    _autoExitDeadline =
+        DateTime.now().add(Duration(minutes: autoExitMinutes.value));
+    _refreshAutoExitCountdown();
+    autoExitTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _refreshAutoExitCountdown(),
+    );
+  }
+
+  void _refreshAutoExitCountdown() {
+    final deadline = _autoExitDeadline;
+    if (!autoExitEnable.value || deadline == null) {
+      return;
+    }
+    final remaining = deadline.difference(DateTime.now());
+    countdown.value = remaining.isNegative ? 0 : remaining.inSeconds + 1;
+    if (remaining <= Duration.zero) {
+      unawaited(_completeAutoExit());
+    }
+  }
+
+  Future<void> _completeAutoExit() async {
+    if (_autoExitCompleting) {
+      return;
+    }
+    _autoExitCompleting = true;
+    autoExitTimer?.cancel();
+    _autoExitDeadline = null;
+    countdown.value = 0;
+    try {
+      Log.i(
+          "定时关闭到点：platform=${Platform.operatingSystem} room=${site.id}/$roomId");
+      await liveDanmaku.stop();
+      await player.stop();
+      await WakelockPlus.disable();
+      if (Platform.isAndroid) {
+        await SystemNavigator.pop();
+      } else {
         if (Platform.isWindows) {
           await windowManager.setPreventClose(false);
         }
         await windowManager.close();
       }
-    });
+    } catch (e, stackTrace) {
+      Log.e("执行定时关闭失败: $e", stackTrace);
+    }
   }
 
   void stopAutoExit() {
     autoExitEnable.value = false;
     autoExitTimer?.cancel();
+    _autoExitDeadline = null;
     countdown.value = autoExitMinutes.value * 60;
   }
 
@@ -601,6 +641,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   /// 加载直播间信息
   void loadData() async {
+    playbackLoadError.value = "";
     try {
       pageLoadding.value = true;
       detail.value = await site.liveSite.getRoomDetail(roomId: roomId);
@@ -625,7 +666,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   /// 初始化播放器
-  void getPlayQualites() async {
+  Future<void> getPlayQualites() async {
+    playbackLoadError.value = "";
     qualites.clear();
     currentQuality = -1;
     try {
@@ -633,7 +675,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
           await site.liveSite.getPlayQualites(detail: detail.value!);
 
       if (playQualites.isEmpty) {
-        SmartDialog.showToast("无法读取播放清晰度");
+        playbackLoadError.value = "无法读取播放清晰度，请稍后重试";
+        Log.e(
+          "播放清晰度列表为空：${site.id}/$roomId",
+          StackTrace.current,
+        );
         return;
       }
       qualites.value = playQualites;
@@ -650,14 +696,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         currentQuality = middle;
       }
 
-      getPlayUrl();
-    } catch (e) {
-      Log.logPrint(e);
-      SmartDialog.showToast("无法读取播放清晰度");
+      await getPlayUrl();
+    } catch (e, stackTrace) {
+      Log.e("读取播放清晰度失败：${site.id}/$roomId error=$e", stackTrace);
+      playbackLoadError.value = e.toString();
     }
   }
 
-  void getPlayUrl() async {
+  Future<void> getPlayUrl() async {
     playUrls.clear();
     currentQualityInfo.value = qualites[currentQuality].quality;
     currentLineInfo.value = "";
@@ -665,7 +711,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     var playUrl = await site.liveSite
         .getPlayUrls(detail: detail.value!, quality: qualites[currentQuality]);
     if (playUrl.urls.isEmpty) {
-      SmartDialog.showToast("无法读取播放地址");
+      playbackLoadError.value = "无法读取播放地址，请稍后重试";
       return;
     }
     playUrls.value = playUrl.urls;
@@ -1001,6 +1047,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     //返回前台
     if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
+      _refreshAutoExitCountdown();
       isBackground = false;
     }
   }

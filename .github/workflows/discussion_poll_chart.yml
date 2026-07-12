@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   update-poll-chart:
-    if: github.repository == 'June6699/dart_simple_live'
+    # The discussion has been closed; keep this workflow file for history but
+    # permanently skip the polling job.
+    if: ${{ false }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout

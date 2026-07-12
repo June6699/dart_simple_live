@@ -826,8 +826,9 @@ Widget _buildSideLockButton(
   required bool alignLeft,
 }) {
   return Obx(() {
-    final visible = controller.showControlsState.value ||
-        controller.lockControlsState.value;
+    final visible = controller.lockControlsState.value
+        ? controller.showLockEdgeState.value
+        : controller.showControlsState.value;
     final offset = -(64 + (alignLeft ? padding.left : padding.right));
     return AnimatedPositioned(
       top: 0,

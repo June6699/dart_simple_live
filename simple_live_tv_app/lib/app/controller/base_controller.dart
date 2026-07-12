@@ -99,27 +99,28 @@ class BasePageController<T> extends BaseController {
   Future loadData() async {
     try {
       if (loadding.value) return;
+      final requestedPage = currentPage;
       loadding.value = true;
       pageError.value = false;
       pageEmpty.value = false;
       notLogin.value = false;
       pageLoadding.value = currentPage == 1;
 
-      var result = await getData(currentPage, pageSize);
+      var result = await getData(requestedPage, pageSize);
       //是否可以加载更多
       if (result.isNotEmpty) {
-        currentPage++;
+        currentPage = requestedPage + 1;
         canLoadMore.value = true;
         pageEmpty.value = false;
       } else {
         canLoadMore.value = false;
-        if (currentPage == 1) {
+        if (requestedPage == 1) {
           pageEmpty.value = true;
         }
       }
       // 赋值数据
-      if (currentPage == 1) {
-        list.value = result;
+      if (requestedPage == 1) {
+        list.assignAll(result);
       } else {
         list.addAll(result);
       }

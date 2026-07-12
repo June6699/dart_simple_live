@@ -166,6 +166,31 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             ),
           ),
         ),
+        if (controller.playbackLoadError.value.isNotEmpty)
+          Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 520),
+              padding: AppStyle.edgeInsetsA24,
+              color: Colors.black87,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    controller.playbackLoadError.value,
+                    textAlign: TextAlign.center,
+                    style: AppStyle.textStyleWhite,
+                  ),
+                  AppStyle.vGap16,
+                  ElevatedButton.icon(
+                    autofocus: true,
+                    onPressed: controller.refreshRoom,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("重试"),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Obx(
           () => Visibility(
             visible: controller.autoExitEnable.value,

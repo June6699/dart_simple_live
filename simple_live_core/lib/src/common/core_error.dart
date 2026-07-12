@@ -27,6 +27,8 @@ class CoreError extends Error {
         return "服务器找不到请求的资源(404)";
       case 444:
         return "抖音访问过于频繁或触发风控限制(444)，请稍后再试，避免连续刷新或重复进入直播间";
+      case 429:
+        return "请求过于频繁(429)，请稍后重试";
       case 500:
         return "服务器出现错误(500)";
       case 502:
