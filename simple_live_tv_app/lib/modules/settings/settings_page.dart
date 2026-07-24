@@ -96,9 +96,9 @@ class SettingsPage extends GetView<SettingsController> {
               Obx(
                 () => HighlightButton(
                   focusNode: AppFocusNode(),
-                  iconData: Icons.grid_view,
+                  iconData: Icons.account_circle_outlined,
                   selected: controller.tabIndex.value == 3,
-                  text: "多屏",
+                  text: "账号",
                   onTap: () {
                     controller.tabController.animateTo(3);
                   },
@@ -108,23 +108,11 @@ class SettingsPage extends GetView<SettingsController> {
               Obx(
                 () => HighlightButton(
                   focusNode: AppFocusNode(),
-                  iconData: Icons.account_circle_outlined,
-                  selected: controller.tabIndex.value == 4,
-                  text: "账号",
-                  onTap: () {
-                    controller.tabController.animateTo(4);
-                  },
-                ),
-              ),
-              AppStyle.hGap32,
-              Obx(
-                () => HighlightButton(
-                  focusNode: AppFocusNode(),
                   iconData: Icons.info_outline,
-                  selected: controller.tabIndex.value == 5,
+                  selected: controller.tabIndex.value == 4,
                   text: "关于",
                   onTap: () {
-                    controller.tabController.animateTo(5);
+                    controller.tabController.animateTo(4);
                   },
                 ),
               ),
@@ -139,7 +127,6 @@ class SettingsPage extends GetView<SettingsController> {
                 buildPlayerSettings(),
                 buildDanmakuSettings(),
                 buildFollowSettings(context),
-                buildMultiRoomSettings(),
                 buildAccountSettings(),
                 buildAbout(),
               ],
@@ -290,34 +277,6 @@ class SettingsPage extends GetView<SettingsController> {
           ),
         ),
         AppStyle.vGap24,
-      ],
-    );
-  }
-
-  Widget buildMultiRoomSettings() {
-    return ListView(
-      padding: AppStyle.edgeInsetsA48,
-      children: [
-        Obx(
-          () => SettingsItemWidget(
-            foucsNode: controller.multiRoomGapFocusNode,
-            autofocus: controller.multiRoomGapFocusNode.isFoucsed.value,
-            title: "多屏间距",
-            items: const {
-              0: "0px",
-              2: "2px",
-              4: "4px",
-              8: "8px",
-              12: "12px",
-              16: "16px",
-              24: "24px",
-            },
-            value: AppSettingsController.instance.effectiveMultiRoomGap,
-            onChanged: (e) {
-              AppSettingsController.instance.setMultiRoomGap(e);
-            },
-          ),
-        ),
       ],
     );
   }

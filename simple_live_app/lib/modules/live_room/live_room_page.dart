@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:floating/floating.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -253,6 +252,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   @override
   Widget build(BuildContext context) {
     final page = Obx(() {
+      if (Platform.isAndroid && controller.androidInPipState.value) {
+        return _buildPipOnlyPage();
+      }
       if (controller.loadError.value) {
         return Scaffold(
           appBar: AppBar(
@@ -321,6 +323,16 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       return buildPageUI();
     });
     return page;
+  }
+
+  /// Android PiP captures the whole activity. Keep the activity tree limited
+  /// to a black video surface so the AppBar, chat and player controls cannot
+  /// leak into the system floating window.
+  Widget _buildPipOnlyPage() {
+    return ColoredBox(
+      color: Colors.black,
+      child: _buildMediaPlayerContent(pipMode: true),
+    );
   }
 
   Widget buildPageUI() {
@@ -595,18 +607,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildMediaPlayer() {
-    final playerContent = _buildMediaPlayerContent();
-    if (!Platform.isAndroid) {
-      return playerContent;
-    }
-    return PiPSwitcher(
-      floating: controller.pip,
-      childWhenDisabled: playerContent,
-      childWhenEnabled: playerContent,
-    );
+    return _buildMediaPlayerContent();
   }
 
-  Widget _buildMediaPlayerContent() {
+  Widget _buildMediaPlayerContent({bool pipMode = false}) {
     var boxFit = BoxFit.contain;
     double? aspectRatio;
     if (AppSettingsController.instance.scaleMode.value == 0) {
@@ -622,6 +626,15 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       boxFit = BoxFit.contain;
       aspectRatio = 4 / 3;
     }
+    if (pipMode) {
+      // The system PiP bounds use the decoded stream dimensions. Keep the
+      // Flutter surface on the same ratio regardless of the user's normal
+      // player scale preference.
+      boxFit = BoxFit.contain;
+      final width = controller.player.state.width ?? 0;
+      final height = controller.player.state.height ?? 0;
+      aspectRatio = width > 0 && height > 0 ? width / height : null;
+    }
     return Stack(
       children: [
         const Positioned.fill(
@@ -634,25 +647,25 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               !AppSettingsController.instance.allowBackgroundPlayback.value,
           resumeUponEnteringForegroundMode:
               !AppSettingsController.instance.allowBackgroundPlayback.value,
-          controls: (state) {
-            return playerControls(state, controller);
-          },
+          controls:
+              pipMode ? null : (state) => playerControls(state, controller),
           aspectRatio: aspectRatio,
           fit: boxFit,
           // 自己实现
           wakelock: false,
         ),
-        Obx(
-          () => Visibility(
-            visible: !controller.liveStatus.value,
-            child: const Center(
-              child: Text(
-                "未开播",
-                style: TextStyle(fontSize: 16, color: Colors.white),
+        if (!pipMode)
+          Obx(
+            () => Visibility(
+              visible: !controller.liveStatus.value,
+              child: const Center(
+                child: Text(
+                  "未开播",
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }

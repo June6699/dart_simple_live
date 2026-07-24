@@ -1,4 +1,4 @@
-﻿class DouyinCookieHelper {
+class DouyinCookieHelper {
   static bool hasCustomCookie(String cookie) {
     return cookie.trim().isNotEmpty;
   }
@@ -11,6 +11,30 @@
   static bool hasFullCookie(String cookie) {
     final normalized = cookie.trim();
     return normalized.isNotEmpty && !isOnlyTtwid(normalized);
+  }
+
+  /// Returns the minimum anonymous playback cookie from a Cookie header.
+  ///
+  /// Room and playback endpoints do not need an account session. Keeping only
+  /// [ttwid] prevents unrelated account cookies from being sent to them.
+  static String? extractTtwid(String cookie) {
+    var value = extractCookieFromHeaderText(cookie) ?? cookie.trim();
+    if (value.toLowerCase().startsWith("cookie:")) {
+      value = value.substring(value.indexOf(":") + 1).trim();
+    }
+    for (final part in value.split(";")) {
+      final item = part.trim();
+      final separatorIndex = item.indexOf("=");
+      if (separatorIndex <= 0) {
+        continue;
+      }
+      final key = item.substring(0, separatorIndex).trim().toLowerCase();
+      final cookieValue = item.substring(separatorIndex + 1).trim();
+      if (key == "ttwid" && cookieValue.isNotEmpty) {
+        return "ttwid=$cookieValue";
+      }
+    }
+    return null;
   }
 
   static String cookieCompletenessHint(String cookie) {

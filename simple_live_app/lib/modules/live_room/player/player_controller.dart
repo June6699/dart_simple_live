@@ -22,10 +22,14 @@ import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/services/background_playback_service.dart';
 import 'package:simple_live_app/services/mpv_options_service.dart';
+import 'package:simple_live_core/simple_live_core.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 const _windowsChromeChannel = MethodChannel('simple_live/windows_chrome');
+const _androidWindowChannel = MethodChannel('simple_live/app_window');
+const liveRoomVolumeSliderDialogTag = 'live_room_volume_slider';
+int _androidWindowHandlerGeneration = 0;
 
 class _DanmakuReplayEntry {
   final String message;
@@ -98,7 +102,6 @@ mixin PlayerMixin {
 
 mixin PlayerStateMixin on PlayerMixin {
   bool _playerClosing = false;
-  bool _desktopVolumeDragging = false;
 
   ///音量控制条计时器
   Timer? hidevolumeTimer;
@@ -132,6 +135,12 @@ mixin PlayerStateMixin on PlayerMixin {
   /// 是否处于全屏状态
   RxBool fullScreenState = false.obs;
 
+  /// Android 系统窗口状态。系统分屏/自由窗和应用自己的小窗是两套状态，
+  /// 不能用 [smallWindowState] 互相代替。
+  RxBool androidInPipState = false.obs;
+  RxBool androidInMultiWindowState = false.obs;
+  RxBool androidFreeformState = false.obs;
+
   /// 显示手势Tip
   RxBool showGestureTip = false.obs;
 
@@ -164,22 +173,48 @@ mixin PlayerStateMixin on PlayerMixin {
   bool get useBottomSheetPlayerMenus =>
       (Platform.isAndroid || Platform.isIOS) && !fullScreenState.value;
 
-  bool get desktopVolumeDragging => _desktopVolumeDragging;
+  bool get isPlayerClosing => _playerClosing;
 
-  set desktopVolumeDragging(bool value) {
-    _desktopVolumeDragging = value;
+  Timer? _gestureTipTimer;
+
+  void showGestureTipText(String text) {
+    final value = text.trim();
+    if (value.isEmpty || _playerClosing) {
+      return;
+    }
+    gestureTipText.value = value;
+    showGestureTip.value = true;
+    _gestureTipTimer?.cancel();
+    _gestureTipTimer = Timer(const Duration(seconds: 2), clearGestureTip);
   }
 
-  bool get isPlayerClosing => _playerClosing;
+  void clearGestureTip() {
+    _gestureTipTimer?.cancel();
+    _gestureTipTimer = null;
+    showGestureTip.value = false;
+    gestureTipText.value = "";
+  }
+
+  void clearTransientPlayerOverlays() {
+    clearGestureTip();
+    cancelVerticalDrag();
+    hidevolumeTimer?.cancel();
+    hidevolumeTimer = null;
+    SmartDialog.dismiss(tag: liveRoomVolumeSliderDialogTag);
+  }
+
+  void cancelVerticalDrag() {}
 
   /// 隐藏控制器
   void hideControls() {
+    clearTransientPlayerOverlays();
     showControlsState.value = false;
     hideControlsTimer?.cancel();
     hideMouseCursor();
   }
 
   void setLockState() {
+    clearGestureTip();
     lockControlsState.value = !lockControlsState.value;
     showLockEdgeState.value = false;
     if (lockControlsState.value) {
@@ -402,11 +437,22 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
   final pip = Floating();
   StreamSubscription<PiPStatus>? _pipSubscription;
+  bool _androidWindowChannelActive = false;
+  int? _androidWindowHandlerToken;
+  bool _mobileSystemUiApplied = false;
+  int _systemLifecycleGeneration = 0;
 
   //final VolumeController volumeController = VolumeController();
 
   /// 初始化一些系统状态
-  void initSystem() async {
+  Future<void> initSystem() async {
+    final generation = ++_systemLifecycleGeneration;
+    if (Platform.isAndroid) {
+      await _initializeAndroidWindowState();
+    }
+    if (_playerClosing || generation != _systemLifecycleGeneration) {
+      return;
+    }
     if (Platform.isAndroid || Platform.isIOS) {
       VolumeController.instance.showSystemUI = false;
     }
@@ -419,20 +465,31 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
     // 进入全屏模式
     if (AppSettingsController.instance.autoFullScreen.value) {
-      enterFullScreen();
+      await enterFullScreen();
     }
   }
 
   /// 释放一些系统状态
   Future resetSystem() async {
+    _systemLifecycleGeneration += 1;
     _pipSubscription?.cancel();
+    if (Platform.isAndroid && _androidWindowChannelActive) {
+      final token = _androidWindowHandlerToken;
+      _androidWindowChannelActive = false;
+      _androidWindowHandlerToken = null;
+      if (token != null && token == _androidWindowHandlerGeneration) {
+        _androidWindowChannel.setMethodCallHandler(null);
+      }
+    }
     //pip.dispose();
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.edgeToEdge,
-      overlays: SystemUiOverlay.values,
-    );
-
-    await resetPreferredOrientation();
+    if (_mobileSystemUiApplied) {
+      await SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.edgeToEdge,
+        overlays: SystemUiOverlay.values,
+      );
+      await resetPreferredOrientation();
+      _mobileSystemUiApplied = false;
+    }
     if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
       // 亮度重置,桌面平台可能会报错,暂时不处理桌面平台的亮度
       try {
@@ -447,17 +504,28 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
   /// 进入全屏
   Future<void> enterFullScreen() async {
+    clearTransientPlayerOverlays();
     if (smallWindowState.value) {
       await exitSmallWindow();
       return;
     }
     fullScreenState.value = true;
     if (Platform.isAndroid || Platform.isIOS) {
+      if (Platform.isAndroid) {
+        await _refreshAndroidWindowState();
+        if (androidFreeformState.value ||
+            (androidInMultiWindowState.value && !androidInPipState.value)) {
+          // A system freeform/split window owns its bounds. Only switch the
+          // Flutter page to the player and leave orientation/system bars alone.
+          return;
+        }
+      }
       //全屏
       await SystemChrome.setEnabledSystemUIMode(
         SystemUiMode.manual,
         overlays: [],
       );
+      _mobileSystemUiApplied = true;
       if (!isVertical.value) {
         //横屏
         await setLandscapeOrientation();
@@ -491,17 +559,24 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
   /// 退出全屏
   Future<void> exitFull() async {
+    clearTransientPlayerOverlays();
     if (smallWindowState.value) {
       await exitSmallWindow();
       return;
     }
     if (Platform.isAndroid || Platform.isIOS) {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.edgeToEdge,
-        overlays: SystemUiOverlay.values,
-      );
-      await resetPreferredOrientation();
-      await Future.delayed(const Duration(milliseconds: 32));
+      if (Platform.isAndroid) {
+        await _refreshAndroidWindowState();
+      }
+      if (_mobileSystemUiApplied) {
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.edgeToEdge,
+          overlays: SystemUiOverlay.values,
+        );
+        await resetPreferredOrientation();
+        _mobileSystemUiApplied = false;
+        await Future.delayed(const Duration(milliseconds: 32));
+      }
     } else {
       await windowManager.setFullScreen(false);
       await _waitForWindowsFullScreenState(false);
@@ -616,6 +691,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   }
 
   Future<void> enterSmallWindow() async {
+    clearTransientPlayerOverlays();
     if (Platform.isAndroid || Platform.isIOS || smallWindowState.value) {
       return;
     }
@@ -656,6 +732,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
   ///退出小窗模式()
   Future<void> exitSmallWindow() async {
+    clearTransientPlayerOverlays();
     if (Platform.isAndroid || Platform.isIOS || !smallWindowState.value) {
       return;
     }
@@ -719,7 +796,9 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     double volume, {
     bool persist = false,
   }) async {
-    final value = volume.clamp(0.0, 100.0).toDouble();
+    final requestedValue = volume.clamp(0.0, 100.0).toDouble();
+    final mobile = Platform.isAndroid || Platform.isIOS;
+    final value = requestedValue <= 0 ? 0.0 : (mobile ? 100.0 : requestedValue);
     if (value <= 0) {
       mutedState.value = true;
       await player.setVolume(0);
@@ -728,8 +807,8 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       _volumeBeforeMute = value;
       await player.setVolume(value);
     }
-    if (persist) {
-      AppSettingsController.instance.setPlayerVolume(value);
+    if (persist && !mobile) {
+      AppSettingsController.instance.setPlayerVolume(requestedValue);
     }
   }
 
@@ -832,14 +911,37 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   bool danmakuStateBeforePIP = false;
   bool _pipStateApplied = false;
   bool _autoPipOnLeaveConfigured = false;
+  bool _autoPipReconfigureInFlight = false;
+  bool _autoPipReconfigurePending = false;
+  int? _autoPipConfiguredVideoWidth;
+  int? _autoPipConfiguredVideoHeight;
 
   Rational _resolvePipAspectRatio() {
     final width = player.state.width ?? 0;
     final height = player.state.height ?? 0;
-    if (height > width) {
-      return const Rational.vertical();
+    if (width > 0 && height > 0) {
+      final divisor = _greatestCommonDivisor(width, height);
+      final numerator = width ~/ divisor;
+      final denominator = height ~/ divisor;
+      final ratio = numerator / denominator;
+      if (ratio >= (1 / 2.39) && ratio <= 2.39) {
+        return Rational(numerator, denominator);
+      }
     }
-    return const Rational.landscape();
+    return height > width
+        ? const Rational.vertical()
+        : const Rational.landscape();
+  }
+
+  int _greatestCommonDivisor(int a, int b) {
+    var left = a.abs();
+    var right = b.abs();
+    while (right != 0) {
+      final remainder = left % right;
+      left = right;
+      right = remainder;
+    }
+    return left == 0 ? 1 : left;
   }
 
   math.Rectangle<int>? _buildPipSourceRectHint() {
@@ -848,17 +950,93 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       return null;
     }
     final renderObject = context.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) {
+    if (renderObject is! RenderBox ||
+        !renderObject.hasSize ||
+        renderObject.size.isEmpty) {
       return null;
     }
     final offset = renderObject.localToGlobal(Offset.zero);
+    var sourceWidth = renderObject.size.width;
+    var sourceHeight = renderObject.size.height;
+    final videoWidth = player.state.width ?? 0;
+    final videoHeight = player.state.height ?? 0;
+    if (videoWidth > 0 && videoHeight > 0) {
+      final videoRatio = videoWidth / videoHeight;
+      final viewRatio = renderObject.size.width / renderObject.size.height;
+      if (viewRatio > videoRatio) {
+        sourceWidth = renderObject.size.height * videoRatio;
+        sourceHeight = renderObject.size.height;
+      } else {
+        sourceWidth = renderObject.size.width;
+        sourceHeight = renderObject.size.width / videoRatio;
+      }
+    }
+    final sourceOffset = Offset(
+      offset.dx + (renderObject.size.width - sourceWidth) / 2,
+      offset.dy + (renderObject.size.height - sourceHeight) / 2,
+    );
     final pixelRatio = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
     return math.Rectangle<int>(
-      (offset.dx * pixelRatio).round(),
-      (offset.dy * pixelRatio).round(),
-      (renderObject.size.width * pixelRatio).round(),
-      (renderObject.size.height * pixelRatio).round(),
+      (sourceOffset.dx * pixelRatio).round(),
+      (sourceOffset.dy * pixelRatio).round(),
+      math.max(1, (sourceWidth * pixelRatio).round()),
+      math.max(1, (sourceHeight * pixelRatio).round()),
     );
+  }
+
+  Future<void> _initializeAndroidWindowState() async {
+    if (!Platform.isAndroid || _androidWindowChannelActive) {
+      return;
+    }
+    _androidWindowChannelActive = true;
+    final token = ++_androidWindowHandlerGeneration;
+    _androidWindowHandlerToken = token;
+    _androidWindowChannel.setMethodCallHandler((call) async {
+      if (!_androidWindowChannelActive ||
+          _androidWindowHandlerToken != token ||
+          call.method != 'windowStateChanged') {
+        return null;
+      }
+      _applyAndroidWindowState(call.arguments);
+      return null;
+    });
+    await _refreshAndroidWindowState();
+  }
+
+  Future<void> _refreshAndroidWindowState() async {
+    if (!Platform.isAndroid || !_androidWindowChannelActive) {
+      return;
+    }
+    final token = _androidWindowHandlerToken;
+    try {
+      final state = await _androidWindowChannel.invokeMethod<dynamic>(
+        'getWindowState',
+      );
+      if (!_androidWindowChannelActive || _androidWindowHandlerToken != token) {
+        return;
+      }
+      _applyAndroidWindowState(state);
+    } catch (e) {
+      Log.d("读取 Android 窗口状态失败：$e");
+    }
+  }
+
+  void _applyAndroidWindowState(dynamic arguments) {
+    if (arguments is! Map) {
+      return;
+    }
+    final inPip = arguments['inPip'] == true;
+    final inMultiWindow = arguments['inMultiWindow'] == true;
+    final isFreeform = arguments['isFreeform'] == true;
+    final wasInPip = androidInPipState.value;
+    androidInPipState.value = inPip;
+    androidInMultiWindowState.value = inMultiWindow;
+    androidFreeformState.value = isFreeform;
+    if (inPip && !wasInPip) {
+      _applyPipEnteredState();
+    } else if (!inPip && wasInPip) {
+      _restorePipExitedState();
+    }
   }
 
   void _ensurePipStatusListener() {
@@ -873,6 +1051,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   }
 
   void _applyPipEnteredState() {
+    androidInPipState.value = true;
     if (_pipStateApplied) {
       return;
     }
@@ -886,11 +1065,14 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   }
 
   void _restorePipExitedState() {
+    androidInPipState.value = false;
     if (!_pipStateApplied && !_autoPipOnLeaveConfigured) {
       return;
     }
     _pipStateApplied = false;
     _autoPipOnLeaveConfigured = false;
+    _autoPipConfiguredVideoWidth = null;
+    _autoPipConfiguredVideoHeight = null;
     showDanmakuState.value = danmakuStateBeforePIP;
     if (showDanmakuState.value) {
       danmakuController?.resume();
@@ -902,6 +1084,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       return;
     }
     _autoPipOnLeaveConfigured = false;
+    _autoPipReconfigurePending = false;
     try {
       await pip.cancelOnLeavePiP();
     } catch (e) {
@@ -910,26 +1093,67 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   }
 
   Future<bool> prepareAutoPipOnLeave() async {
-    if (!Platform.isAndroid || _autoPipOnLeaveConfigured) {
+    if (!Platform.isAndroid) {
       return _autoPipOnLeaveConfigured;
+    }
+    final videoWidth = player.state.width ?? 0;
+    final videoHeight = player.state.height ?? 0;
+    if (_autoPipOnLeaveConfigured &&
+        videoWidth > 0 &&
+        videoHeight > 0 &&
+        _autoPipConfiguredVideoWidth == videoWidth &&
+        _autoPipConfiguredVideoHeight == videoHeight) {
+      return true;
     }
     if (await pip.isPipAvailable == false) {
       return false;
     }
     _ensurePipStatusListener();
     try {
-      await pip.enable(
+      final status = await pip.enable(
         OnLeavePiP(
           aspectRatio: _resolvePipAspectRatio(),
           sourceRectHint: _buildPipSourceRectHint(),
         ),
       );
+      if (status != PiPStatus.automatic && status != PiPStatus.enabled) {
+        _autoPipOnLeaveConfigured = false;
+        return false;
+      }
       _autoPipOnLeaveConfigured = true;
+      _autoPipConfiguredVideoWidth = videoWidth > 0 ? videoWidth : null;
+      _autoPipConfiguredVideoHeight = videoHeight > 0 ? videoHeight : null;
       showControlsState.value = false;
       return true;
     } catch (e) {
       Log.d("配置退后台自动小窗失败: $e");
       return false;
+    }
+  }
+
+  Future<void> refreshAutoPipOnVideoSize() async {
+    if (!Platform.isAndroid || !_autoPipOnLeaveConfigured) {
+      return;
+    }
+    if (_autoPipReconfigureInFlight) {
+      _autoPipReconfigurePending = true;
+      return;
+    }
+    _autoPipReconfigureInFlight = true;
+    try {
+      do {
+        _autoPipReconfigurePending = false;
+        if (!_autoPipOnLeaveConfigured) {
+          break;
+        }
+        await prepareAutoPipOnLeave();
+      } while (_autoPipReconfigurePending && _autoPipOnLeaveConfigured);
+    } finally {
+      _autoPipReconfigureInFlight = false;
+      if (_autoPipReconfigurePending && _autoPipOnLeaveConfigured) {
+        _autoPipReconfigurePending = false;
+        unawaited(refreshAutoPipOnVideoSize());
+      }
     }
   }
 
@@ -944,12 +1168,15 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
     await cancelAutoPipOnLeave();
     _ensurePipStatusListener();
-    await pip.enable(
+    final status = await pip.enable(
       ImmediatePiP(
         aspectRatio: _resolvePipAspectRatio(),
         sourceRectHint: _buildPipSourceRectHint(),
       ),
     );
+    if (status != PiPStatus.enabled) {
+      SmartDialog.showToast("进入小窗失败");
+    }
   }
 }
 mixin PlayerGestureControlMixin
@@ -1013,10 +1240,11 @@ mixin PlayerGestureControlMixin
   }
 
   /// 双击全屏/退出全屏
-  void onDoubleTap(TapDownDetails details) {
+  void onDoubleTap() {
     if (lockControlsState.value) {
       return;
     }
+    clearTransientPlayerOverlays();
     if (smallWindowState.value) {
       exitSmallWindow();
     } else if (fullScreenState.value) {
@@ -1031,11 +1259,33 @@ mixin PlayerGestureControlMixin
   var _currentVolume = 0.0;
   var _currentBrightness = 1.0;
   var verStartPosition = 0.0;
+  var _verticalDragExtent = 1.0;
+  var _useLocalDragPosition = false;
+  var _verticalDragGeneration = 0;
+  var _verticalDragReady = false;
 
   DelayedThrottle? throttle;
 
+  @override
+  void cancelVerticalDrag() {
+    _verticalDragGeneration += 1;
+    throttle?.cancel();
+    throttle = null;
+    verticalDragging = false;
+    leftVerticalDrag = false;
+    _useLocalDragPosition = false;
+    _verticalDragReady = false;
+  }
+
   /// 竖向手势开始
-  void onVerticalDragStart(DragStartDetails details) async {
+  Future<void> onVerticalDragStart(
+    DragStartDetails details, {
+    Size? viewportSize,
+  }) async {
+    clearGestureTip();
+    // A new drag invalidates any pending system-volume/brightness read from
+    // the previous drag before checking whether this gesture is usable.
+    cancelVerticalDrag();
     showMouseCursor();
     resetHideMouseCursorTimer();
     if (lockControlsState.value && fullScreenState.value) {
@@ -1045,37 +1295,62 @@ mixin PlayerGestureControlMixin
       return;
     }
 
-    final dy = details.globalPosition.dy;
+    final width = viewportSize?.width ?? Get.width;
+    final height = viewportSize?.height ?? Get.height;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    final localX = details.localPosition.dx;
+    final localY = details.localPosition.dy;
+    if (Platform.isWindows || Platform.isLinux) {
+      final sideGestureWidth = width * 0.28;
+      if (localX > sideGestureWidth && localX < width - sideGestureWidth) {
+        return;
+      }
+    }
+
+    _useLocalDragPosition = viewportSize != null;
+    final dy = _useLocalDragPosition ? localY : details.globalPosition.dy;
     // 开始位置必须是中间2/4的位置
-    if (dy < Get.height * 0.25 || dy > Get.height * 0.75) {
+    if (dy < height * 0.25 || dy > height * 0.75) {
       return;
     }
 
     verStartPosition = dy;
-    leftVerticalDrag = details.globalPosition.dx < Get.width / 2;
+    _verticalDragExtent = math.max(height * 0.5, 1.0);
+    leftVerticalDrag = localX < width / 2;
 
-    throttle = DelayedThrottle(200);
+    throttle?.cancel();
+    throttle = DelayedThrottle(
+      200,
+      onError: (error, stackTrace) {
+        Log.e("调整系统音量失败: $error", stackTrace);
+      },
+    );
     lastVolume = -1;
 
     verticalDragging = true;
-    if (Platform.isAndroid ||
-        Platform.isIOS ||
-        Platform.isMacOS ||
-        Platform.isWindows ||
-        Platform.isLinux) {
-      showGestureTip.value = true;
-    }
+    _verticalDragReady = false;
+    final dragGeneration = ++_verticalDragGeneration;
+    double? initialVolume;
+    var initialBrightness = 1.0;
+    var volumeReadSucceeded = true;
     if (Platform.isWindows || Platform.isLinux) {
       final currentPlayerVolume = player.state.volume;
       if (currentPlayerVolume > 0) {
-        _currentVolume = currentPlayerVolume.clamp(0.0, 100.0) / 100;
+        initialVolume = currentPlayerVolume.clamp(0.0, 100.0) / 100;
       } else {
-        _currentVolume = AppSettingsController.instance.playerVolume.value
+        initialVolume = AppSettingsController.instance.playerVolume.value
                 .clamp(0.0, 100.0) /
             100;
       }
     } else if (Platform.isAndroid || Platform.isIOS) {
-      _currentVolume = await VolumeController.instance.getVolume();
+      try {
+        initialVolume = await VolumeController.instance.getVolume();
+      } catch (e, stackTrace) {
+        volumeReadSucceeded = false;
+        Log.e("读取系统音量失败: $e", stackTrace);
+      }
     }
     if (Platform.isAndroid ||
         Platform.isIOS ||
@@ -1083,12 +1358,23 @@ mixin PlayerGestureControlMixin
         Platform.isWindows ||
         Platform.isLinux) {
       try {
-        _currentBrightness = await ScreenBrightness.instance.application;
-      } catch (e) {
-        Log.logPrint(e);
-        _currentBrightness = 1.0;
+        initialBrightness = await ScreenBrightness.instance.application;
+      } catch (e, stackTrace) {
+        Log.e("读取应用亮度失败: $e", stackTrace);
       }
     }
+    if (dragGeneration != _verticalDragGeneration || !verticalDragging) {
+      return;
+    }
+    if (!leftVerticalDrag && !volumeReadSucceeded) {
+      // Do not calculate a new value from the previous gesture when the
+      // system-volume read failed; the next gesture can retry the read.
+      verticalDragging = false;
+      return;
+    }
+    _currentVolume = initialVolume ?? _currentVolume;
+    _currentBrightness = initialBrightness;
+    _verticalDragReady = true;
   }
 
   /// 竖向手势更新
@@ -1099,7 +1385,7 @@ mixin PlayerGestureControlMixin
     if (!AppSettingsController.instance.playerGestureControlEnable.value) {
       return;
     }
-    if (verticalDragging == false) return;
+    if (verticalDragging == false || !_verticalDragReady) return;
     if (!Platform.isAndroid &&
         !Platform.isIOS &&
         !Platform.isWindows &&
@@ -1109,12 +1395,14 @@ mixin PlayerGestureControlMixin
     //String text = "";
     //double value = 0.0;
 
-    Log.logPrint("$verStartPosition/${e.globalPosition.dy}");
+    final dragPosition =
+        _useLocalDragPosition ? e.localPosition.dy : e.globalPosition.dy;
+    Log.logPrint("$verStartPosition/$dragPosition");
 
     if (leftVerticalDrag) {
-      setGestureBrightness(e.globalPosition.dy);
+      setGestureBrightness(dragPosition);
     } else {
-      setGestureVolume(e.globalPosition.dy);
+      setGestureVolume(dragPosition);
     }
   }
 
@@ -1124,14 +1412,14 @@ mixin PlayerGestureControlMixin
     double value = 0.0;
     double seek;
     if (dy > verStartPosition) {
-      value = ((dy - verStartPosition) / (Get.height * 0.5));
+      value = ((dy - verStartPosition) / _verticalDragExtent);
 
       seek = _currentVolume - value;
       if (seek < 0) {
         seek = 0;
       }
     } else {
-      value = ((dy - verStartPosition) / (Get.height * 0.5));
+      value = ((dy - verStartPosition) / _verticalDragExtent);
       seek = value.abs() + _currentVolume;
       if (seek > 1) {
         seek = 1;
@@ -1143,7 +1431,7 @@ mixin PlayerGestureControlMixin
     }
     lastVolume = volume;
     // update UI outside throttle to make it more fluent
-    gestureTipText.value = "音量 $volume%";
+    showGestureTipText("音量 $volume%");
     throttle?.invoke(() async => await _realSetVolume(volume));
   }
 
@@ -1152,7 +1440,7 @@ mixin PlayerGestureControlMixin
     return (volume / 5).round() * 5;
   }
 
-  Future _realSetVolume(int volume) async {
+  Future<void> _realSetVolume(int volume) async {
     Log.logPrint(volume);
     if (Platform.isWindows || Platform.isLinux) {
       await setSessionPlayerVolume(volume.toDouble(), persist: true);
@@ -1165,7 +1453,7 @@ mixin PlayerGestureControlMixin
   void setGestureBrightness(double dy) {
     double value = 0.0;
     if (dy > verStartPosition) {
-      value = ((dy - verStartPosition) / (Get.height * 0.5));
+      value = ((dy - verStartPosition) / _verticalDragExtent);
 
       var seek = _currentBrightness - value;
       if (seek < 0) {
@@ -1173,33 +1461,30 @@ mixin PlayerGestureControlMixin
       }
       ScreenBrightness.instance.setApplicationScreenBrightness(seek);
 
-      gestureTipText.value = "亮度 ${(seek * 100).toInt()}%";
+      showGestureTipText("亮度 ${(seek * 100).toInt()}%");
       Log.logPrint(value);
     } else {
-      value = ((dy - verStartPosition) / (Get.height * 0.5));
+      value = ((dy - verStartPosition) / _verticalDragExtent);
       var seek = value.abs() + _currentBrightness;
       if (seek > 1) {
         seek = 1;
       }
 
       ScreenBrightness.instance.setApplicationScreenBrightness(seek);
-      gestureTipText.value = "亮度 ${(seek * 100).toInt()}%";
+      showGestureTipText("亮度 ${(seek * 100).toInt()}%");
       Log.logPrint(value);
     }
   }
 
   /// 竖向手势完成
   void onVerticalDragEnd(DragEndDetails details) async {
-    if (lockControlsState.value && fullScreenState.value) {
-      return;
-    }
-    if (!AppSettingsController.instance.playerGestureControlEnable.value) {
-      return;
-    }
-    throttle = null;
-    verticalDragging = false;
-    leftVerticalDrag = false;
-    showGestureTip.value = false;
+    cancelVerticalDrag();
+    clearGestureTip();
+  }
+
+  void onVerticalDragCancel() {
+    cancelVerticalDrag();
+    clearGestureTip();
   }
 }
 
@@ -1210,12 +1495,99 @@ class PlayerController extends BaseController
         PlayerDanmakuMixin,
         PlayerSystemMixin,
         PlayerGestureControlMixin {
+  /// 播放恢复操作所属的加载代次。
+  ///
+  /// 普通播放器没有房间切换概念，使用固定代次；直播间控制器会覆盖此值，
+  /// 让延迟重试在切换房间后自动失效。
+  int get playbackLoadGeneration => 0;
+
+  /// Changes whenever the current media is deliberately reopened.
+  int get playbackMediaGeneration => 0;
+
+  bool isPlaybackLoadGenerationCurrent(int generation) {
+    return !_playerClosing && generation == playbackLoadGeneration;
+  }
+
+  Future<void>? _playbackOpenFuture;
+
+  bool _isPlaybackOwnerCurrent(
+    int loadGeneration,
+    int mediaGeneration,
+    bool Function()? isStillOwner,
+  ) {
+    return isPlaybackLoadGenerationCurrent(loadGeneration) &&
+        mediaGeneration == playbackMediaGeneration &&
+        (isStillOwner?.call() ?? true);
+  }
+
+  /// Serializes every media open so a stale recovery cannot finish after a
+  /// newer room open and replace its media.
+  Future<bool> openPlaybackMedia(
+    Media media, {
+    required int loadGeneration,
+    required int mediaGeneration,
+    bool Function()? isStillOwner,
+  }) async {
+    while (true) {
+      if (!_isPlaybackOwnerCurrent(
+        loadGeneration,
+        mediaGeneration,
+        isStillOwner,
+      )) {
+        return false;
+      }
+      final activeOpen = _playbackOpenFuture;
+      if (activeOpen == null) {
+        break;
+      }
+      try {
+        await activeOpen;
+      } catch (e, stackTrace) {
+        Log.e("等待旧媒体打开失败: $e", stackTrace);
+      }
+    }
+
+    if (!_isPlaybackOwnerCurrent(
+      loadGeneration,
+      mediaGeneration,
+      isStillOwner,
+    )) {
+      return false;
+    }
+    final opening = Future<void>.microtask(() => player.open(media));
+    _playbackOpenFuture = opening;
+    try {
+      await opening;
+      return _isPlaybackOwnerCurrent(
+        loadGeneration,
+        mediaGeneration,
+        isStillOwner,
+      );
+    } finally {
+      if (identical(_playbackOpenFuture, opening)) {
+        _playbackOpenFuture = null;
+      }
+    }
+  }
+
+  Future<void> waitForPlaybackOpen() async {
+    final activeOpen = _playbackOpenFuture;
+    if (activeOpen == null) {
+      return;
+    }
+    try {
+      await activeOpen;
+    } catch (e, stackTrace) {
+      Log.e("等待媒体打开结束失败: $e", stackTrace);
+    }
+  }
+
   @override
   void onInit() {
-    initSystem();
+    unawaited(initSystem());
     initStream();
     //设置音量
-    player.setVolume(AppSettingsController.instance.playerVolume.value);
+    player.setVolume(_resolvedPlayerVolume());
     super.onInit();
   }
 
@@ -1229,39 +1601,92 @@ class PlayerController extends BaseController
   // Fix Issue #57: 流错误重试计数器
   int _streamErrorRetryCount = 0;
   DateTime? _lastStreamErrorTime;
+  DateTime? _lastAudioDiagnosticTime;
+  bool _streamErrorRetrying = false;
+  int? _streamErrorRetryGeneration;
+  int? _streamErrorGeneration;
+  Timer? _streamErrorStablePlaybackTimer;
   Timer? _surfaceHealthCheckTimer;
+
+  static const _stablePlaybackDuration = Duration(seconds: 30);
+
+  void _syncStreamErrorGeneration(int generation) {
+    if (_streamErrorGeneration == generation) {
+      return;
+    }
+    _streamErrorGeneration = generation;
+    _streamErrorRetryCount = 0;
+    _lastStreamErrorTime = null;
+    _streamErrorStablePlaybackTimer?.cancel();
+    _streamErrorStablePlaybackTimer = null;
+  }
+
+  void _cancelStablePlaybackTimer() {
+    _streamErrorStablePlaybackTimer?.cancel();
+    _streamErrorStablePlaybackTimer = null;
+  }
+
+  void _scheduleStablePlaybackReset(int generation) {
+    _cancelStablePlaybackTimer();
+    _streamErrorStablePlaybackTimer = Timer(_stablePlaybackDuration, () {
+      _streamErrorStablePlaybackTimer = null;
+      if (!isPlaybackLoadGenerationCurrent(generation) ||
+          !player.state.playing ||
+          _streamErrorRetrying) {
+        return;
+      }
+      if (_streamErrorGeneration == generation) {
+        _streamErrorRetryCount = 0;
+        _lastStreamErrorTime = null;
+        Log.d("播放器已稳定播放，重置流错误重试计数");
+      }
+    });
+  }
 
   void initStream() {
     _errorSubscription = player.stream.error.listen((event) {
-      Log.d("播放器错误：$event");
-      // 跳过无音频输出的错误
-      // Could not open/initialize audio device -> no sound.
-      if (event.contains('no sound.')) {
+      if (PlayerErrorClassifier.isRecoverableAudioDiagnostic(event)) {
+        final now = DateTime.now();
+        if (_lastAudioDiagnosticTime == null ||
+            now.difference(_lastAudioDiagnosticTime!) >=
+                const Duration(seconds: 15)) {
+          _lastAudioDiagnosticTime = now;
+          Log.d("播放器音频诊断（已忽略）：$event");
+        }
         return;
       }
+      Log.d("播放器错误：$event");
 
       // Fix Issue #57: 检测流错误并自动重试
       if (_isStreamError(event)) {
-        _handleStreamError(event);
+        _cancelStablePlaybackTimer();
+        unawaited(_handleStreamError(event));
         return;
       }
 
       //SmartDialog.showToast(event);
+      _cancelStablePlaybackTimer();
       mediaError(event);
     });
 
     _playingSubscription = player.stream.playing.listen((event) {
+      final generation = playbackLoadGeneration;
+      _syncStreamErrorGeneration(generation);
       if (event) {
+        unawaited(_applyResolvedPlayerVolume());
         WakelockPlus.enable();
         unawaited(_syncBackgroundPlaybackService(true));
         Log.d("Playing");
-        // 播放成功，重置流错误计数
-        _streamErrorRetryCount = 0;
+        // 只有持续播放一段时间才清零，避免坏流在每次重开后立刻绕过上限。
+        _scheduleStablePlaybackReset(generation);
+      } else {
+        _cancelStablePlaybackTimer();
       }
     });
 
     _completedSubscription = player.stream.completed.listen((event) {
       if (event) {
+        _cancelStablePlaybackTimer();
         mediaEnd();
       }
     });
@@ -1283,6 +1708,7 @@ class PlayerController extends BaseController
 
       isVertical.value =
           (player.state.height ?? 9) > (player.state.width ?? 16);
+      unawaited(refreshAutoPipOnVideoSize());
     });
     _heightSubscription = player.stream.height.listen((event) {
       Log.d(
@@ -1299,6 +1725,7 @@ class PlayerController extends BaseController
 
       isVertical.value =
           (player.state.height ?? 9) > (player.state.width ?? 16);
+      unawaited(refreshAutoPipOnVideoSize());
     });
 
     // Fix Issue #57: 启动Surface健康检查
@@ -1306,6 +1733,7 @@ class PlayerController extends BaseController
   }
 
   void disposeStream() {
+    _cancelStablePlaybackTimer();
     _errorSubscription?.cancel();
     _completedSubscription?.cancel();
     _widthSubscription?.cancel();
@@ -1328,11 +1756,31 @@ class PlayerController extends BaseController
 
   // Fix Issue #57: 处理流错误，自动重试
   Future<void> _handleStreamError(String error) async {
+    final generation = playbackLoadGeneration;
+    final mediaGeneration = playbackMediaGeneration;
+    if (!isPlaybackLoadGenerationCurrent(generation)) {
+      return;
+    }
+    _syncStreamErrorGeneration(generation);
+    if (_streamErrorRetrying && _streamErrorRetryGeneration == generation) {
+      return;
+    }
+    _streamErrorRetrying = true;
+    _streamErrorRetryGeneration = generation;
+    final mediaAtError = player.state.playlist.medias.isNotEmpty
+        ? player.state.playlist.medias[player.state.playlist.index]
+        : null;
+    final mediaUriAtError = mediaAtError?.uri;
     final now = DateTime.now();
 
     // 防止短时间内重复触发
     if (_lastStreamErrorTime != null &&
         now.difference(_lastStreamErrorTime!) < const Duration(seconds: 2)) {
+      _streamErrorRetrying = false;
+      _streamErrorRetryGeneration = null;
+      if (player.state.playing) {
+        _scheduleStablePlaybackReset(generation);
+      }
       return;
     }
     _lastStreamErrorTime = now;
@@ -1340,6 +1788,8 @@ class PlayerController extends BaseController
     if (_streamErrorRetryCount >= 3) {
       Log.e("流错误重试次数已达上限(3次)，停止重试: $error", StackTrace.current);
       mediaError(error);
+      _streamErrorRetrying = false;
+      _streamErrorRetryGeneration = null;
       return;
     }
 
@@ -1353,20 +1803,74 @@ class PlayerController extends BaseController
     await Future.delayed(const Duration(seconds: 1));
 
     try {
+      if (!isPlaybackLoadGenerationCurrent(generation)) {
+        return;
+      }
       final currentMedia = player.state.playlist.medias.isNotEmpty
           ? player.state.playlist.medias[player.state.playlist.index]
           : null;
 
-      if (currentMedia != null && !_playerClosing) {
+      if (mediaGeneration != playbackMediaGeneration ||
+          mediaAtError == null ||
+          mediaUriAtError == null ||
+          currentMedia == null ||
+          currentMedia.uri != mediaUriAtError) {
+        return;
+      }
+
+      if (isPlaybackLoadGenerationCurrent(generation)) {
         Log.i("正在重启解码器...");
         await player.pause();
+        if (!isPlaybackLoadGenerationCurrent(generation) ||
+            mediaGeneration != playbackMediaGeneration) {
+          return;
+        }
         await Future.delayed(const Duration(milliseconds: 200));
-        await player.open(currentMedia);
+        if (!isPlaybackLoadGenerationCurrent(generation) ||
+            mediaGeneration != playbackMediaGeneration) {
+          return;
+        }
+        final reopened = await openPlaybackMedia(
+          currentMedia,
+          loadGeneration: generation,
+          mediaGeneration: mediaGeneration,
+          isStillOwner: () {
+            final activeMedia = player.state.playlist.medias.isNotEmpty
+                ? player.state.playlist.medias[player.state.playlist.index]
+                : null;
+            return activeMedia?.uri == mediaUriAtError;
+          },
+        );
+        if (!reopened) {
+          return;
+        }
       }
     } catch (e, stackTrace) {
       Log.e("重启解码器失败: $e", stackTrace);
-      mediaError(error);
+      if (isPlaybackLoadGenerationCurrent(generation)) {
+        mediaError(error);
+      }
+    } finally {
+      if (_streamErrorRetryGeneration == generation) {
+        _streamErrorRetrying = false;
+        _streamErrorRetryGeneration = null;
+      }
     }
+  }
+
+  double _resolvedPlayerVolume() {
+    return PlayerVolumePolicy.internalVolume(
+      mobile: Platform.isAndroid || Platform.isIOS,
+      muted: mutedState.value,
+      persisted: AppSettingsController.instance.playerVolume.value,
+    );
+  }
+
+  Future<void> _applyResolvedPlayerVolume() async {
+    if (_playerClosing) {
+      return;
+    }
+    await player.setVolume(_resolvedPlayerVolume());
   }
 
   // Fix Issue #57: 处理异常的视频尺寸（Surface失效）
@@ -1544,7 +2048,10 @@ class PlayerController extends BaseController
       return;
     }
     _playerClosing = true;
+    _cancelStablePlaybackTimer();
+    clearTransientPlayerOverlays();
     await stopBackgroundPlaybackService();
+    await waitForPlaybackOpen();
     await player.stop();
     if (smallWindowState.value) {
       await exitSmallWindow();

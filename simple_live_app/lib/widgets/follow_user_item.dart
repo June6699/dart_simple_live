@@ -15,12 +15,20 @@ enum FollowUserItemStyle {
 }
 
 class FollowUserItem extends StatelessWidget {
+  static const double previewDetailsExtent = 108;
+
   final FollowUser item;
   final Function()? onRemove;
   final Function()? onSpecialTap;
   final Function()? onTap;
   final Function()? onLongPress;
   final bool playing;
+
+  /// The room currently playing in the main player.
+  final bool selectedForMultiRoom;
+
+  /// Whether the page is in multi-room selection mode.
+  final bool multiSelectMode;
   final bool showSpecialMark;
   final bool showLiveCover;
   final FollowUserItemStyle style;
@@ -32,6 +40,8 @@ class FollowUserItem extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.playing = false,
+    this.selectedForMultiRoom = false,
+    this.multiSelectMode = false,
     this.showSpecialMark = false,
     this.showLiveCover = false,
     this.style = FollowUserItemStyle.defaultList,
@@ -41,14 +51,19 @@ class FollowUserItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      switch (style) {
-        case FollowUserItemStyle.compactList:
-          return _buildListCard(context, compact: true);
-        case FollowUserItemStyle.card:
-          return _buildPreviewCard(context);
-        case FollowUserItemStyle.defaultList:
-          return _buildListCard(context, compact: false);
-      }
+      final content = switch (style) {
+        FollowUserItemStyle.compactList =>
+          _buildListCard(context, compact: true),
+        FollowUserItemStyle.card => _buildPreviewCard(context),
+        FollowUserItemStyle.defaultList =>
+          _buildListCard(context, compact: false),
+      };
+      return Semantics(
+        button: true,
+        selected: selectedForMultiRoom,
+        label: _semanticLabel(),
+        child: content,
+      );
     });
   }
 
@@ -76,12 +91,7 @@ class FollowUserItem extends StatelessWidget {
         onLongPress: onLongPress,
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(
-              color: playing
-                  ? theme.colorScheme.primary.withAlpha(180)
-                  : Colors.black.withAlpha(20),
-              width: playing ? 1.4 : 0.8,
-            ),
+            border: _stateBorder(theme, idleAlpha: 20, idleWidth: 0.8),
             borderRadius: radius,
           ),
           padding: EdgeInsets.all(compact ? 8 : 10),
@@ -223,12 +233,7 @@ class FollowUserItem extends StatelessWidget {
         onLongPress: onLongPress,
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(
-              color: playing
-                  ? theme.colorScheme.primary.withAlpha(180)
-                  : Colors.black.withAlpha(16),
-              width: playing ? 1.4 : 0.6,
-            ),
+            border: _stateBorder(theme, idleAlpha: 16, idleWidth: 0.6),
             borderRadius: radius,
           ),
           padding: EdgeInsets.symmetric(
@@ -329,7 +334,7 @@ class FollowUserItem extends StatelessWidget {
       return _buildAvatarCard(context);
     }
     final theme = Theme.of(context);
-    final radius = BorderRadius.circular(16);
+    final radius = BorderRadius.circular(8);
     return Material(
       color: theme.cardColor,
       borderRadius: radius,
@@ -340,12 +345,7 @@ class FollowUserItem extends StatelessWidget {
         onLongPress: onLongPress,
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(
-              color: playing
-                  ? theme.colorScheme.primary.withAlpha(180)
-                  : Colors.black.withAlpha(24),
-              width: playing ? 1.4 : 0.8,
-            ),
+            border: _stateBorder(theme, idleAlpha: 24, idleWidth: 0.8),
             borderRadius: radius,
           ),
           child: Column(
@@ -357,68 +357,88 @@ class FollowUserItem extends StatelessWidget {
               ),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Row(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      NetImage(
-                        item.face,
-                        width: 42,
-                        height: 42,
-                        borderRadius: 21,
+                      Text(
+                        _displayRoomTitle(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(height: 8),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Text(
-                              item.userName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
+                            NetImage(
+                              item.face,
+                              width: 36,
+                              height: 36,
+                              borderRadius: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.userName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Image.asset(
+                                        _site.logo,
+                                        width: 14,
+                                        height: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      _buildStatusDot(),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          getStatus(item.liveStatus.value),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: theme
+                                                .colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                      if (playing)
+                                        Tooltip(
+                                          message: "正在观看",
+                                          child: Icon(
+                                            Icons.play_circle_outline,
+                                            size: 15,
+                                            color: theme.colorScheme.primary,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _displayRoomTitle(),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            const Spacer(),
-                            Wrap(
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                Image.asset(
-                                  _site.logo,
-                                  width: 16,
-                                  height: 16,
-                                ),
-                                Text(
-                                  _site.name,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                _buildInfoChip(
-                                  context,
-                                  label: getStatus(item.liveStatus.value),
-                                  active: item.liveStatus.value == 2,
-                                ),
-                              ],
+                            const SizedBox(width: 4),
+                            _buildActionArea(
+                              context,
+                              compact: true,
+                              vertical: true,
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildActionArea(
-                        context,
-                        compact: true,
-                        vertical: true,
                       ),
                     ],
                   ),
@@ -444,12 +464,7 @@ class FollowUserItem extends StatelessWidget {
         onLongPress: onLongPress,
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(
-              color: playing
-                  ? theme.colorScheme.primary.withAlpha(180)
-                  : Colors.black.withAlpha(24),
-              width: playing ? 1.4 : 0.8,
-            ),
+            border: _stateBorder(theme, idleAlpha: 24, idleWidth: 0.8),
             borderRadius: radius,
           ),
           padding: const EdgeInsets.all(12),
@@ -497,6 +512,13 @@ class FollowUserItem extends StatelessWidget {
                       label: "正在观看",
                       active: true,
                     ),
+                  if (selectedForMultiRoom)
+                    _buildInfoChip(
+                      context,
+                      label: "同屏已选",
+                      active: true,
+                      accentColor: theme.colorScheme.secondary,
+                    ),
                 ],
               ),
               const SizedBox(height: 10),
@@ -514,82 +536,43 @@ class FollowUserItem extends StatelessWidget {
 
   Widget _buildCover(BuildContext context, {required double radius}) {
     final theme = Theme.of(context);
-    if (item.liveStatus.value != 2) {
-      return Container(
-        color: theme.colorScheme.surfaceContainerHighest,
-        alignment: Alignment.center,
-        child: Text(
-          "未直播",
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
-    }
+    final isLive = item.liveStatus.value == 2;
     final coverImage = _coverImage;
     return Stack(
       fit: StackFit.expand,
       children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
+        if (!isLive)
+          Container(
             color: theme.colorScheme.surfaceContainerHighest,
-          ),
-          child: coverImage.isEmpty
-              ? Center(
-                  child: Text(
-                    "直播封面补齐中",
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.grey.shade600,
+            alignment: Alignment.center,
+            child: Text(
+              "未直播",
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          )
+        else
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+            ),
+            child: coverImage.isEmpty
+                ? Center(
+                    child: Text(
+                      "直播封面补齐中",
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
+                  )
+                : NetImage(
+                    coverImage,
+                    fit: BoxFit.cover,
+                    borderRadius: radius,
                   ),
-                )
-              : NetImage(
-                  coverImage,
-                  fit: BoxFit.cover,
-                  borderRadius: radius,
-                ),
-        ),
-        Positioned(
-          left: 8,
-          top: 8,
-          child: _buildInfoChip(
-            context,
-            label: getStatus(item.liveStatus.value),
-            active: item.liveStatus.value == 2,
           ),
-        ),
-        if (playing)
-          Positioned(
-            right: 8,
-            top: 8,
-            child: _buildInfoChip(
-              context,
-              label: "正在观看",
-              active: true,
-            ),
-          ),
-        Positioned(
-          left: 8,
-          right: 8,
-          bottom: 8,
-          child: Text(
-            _displayRoomTitle(),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              shadows: [
-                Shadow(
-                  blurRadius: 8,
-                  color: Colors.black54,
-                ),
-              ],
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -610,20 +593,20 @@ class FollowUserItem extends StatelessWidget {
     BuildContext context, {
     required String label,
     required bool active,
+    Color? accentColor,
   }) {
     final theme = Theme.of(context);
+    final accent = accentColor ?? theme.colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: active
-            ? theme.colorScheme.primary.withAlpha(28)
-            : Colors.black.withAlpha(20),
+        color: active ? accent.withAlpha(28) : Colors.black.withAlpha(20),
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(
         label,
         style: theme.textTheme.bodySmall?.copyWith(
-          color: active ? theme.colorScheme.primary : Colors.grey.shade700,
+          color: active ? accent : theme.colorScheme.onSurfaceVariant,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -637,7 +620,22 @@ class FollowUserItem extends StatelessWidget {
   }) {
     final iconSize = compact ? 18.0 : 20.0;
     final children = <Widget>[
-      if (onSpecialTap != null)
+      if (multiSelectMode)
+        Tooltip(
+          message: selectedForMultiRoom ? "取消同屏选择" : "选择加入同屏",
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Icon(
+              selectedForMultiRoom ? Icons.check_circle : Icons.circle_outlined,
+              size: 22,
+              color: selectedForMultiRoom
+                  ? Theme.of(context).colorScheme.secondary
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        )
+      else if (onSpecialTap != null)
         IconButton(
           tooltip: item.isSpecialFollow ? "取消特别关注" : "特别关注",
           iconSize: iconSize,
@@ -656,7 +654,7 @@ class FollowUserItem extends StatelessWidget {
           color: Colors.amber,
           size: iconSize,
         ),
-      if (onRemove != null)
+      if (!multiSelectMode && onRemove != null)
         IconButton(
           iconSize: iconSize,
           visualDensity: VisualDensity.compact,
@@ -678,6 +676,40 @@ class FollowUserItem extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: children,
           );
+  }
+
+  Border _stateBorder(
+    ThemeData theme, {
+    required int idleAlpha,
+    required double idleWidth,
+  }) {
+    final idleBorderAlpha =
+        (idleAlpha + (theme.brightness == Brightness.dark ? 72 : 48))
+            .clamp(0, 255)
+            .toInt();
+    final color = selectedForMultiRoom
+        ? theme.colorScheme.secondary
+        : playing
+            ? theme.colorScheme.primary
+            : theme.colorScheme.outlineVariant.withAlpha(idleBorderAlpha);
+    return Border.all(
+      color: color,
+      width: selectedForMultiRoom || playing ? 1.6 : idleWidth,
+    );
+  }
+
+  String _semanticLabel() {
+    final parts = <String>[
+      item.userName,
+      getStatus(item.liveStatus.value),
+    ];
+    if (playing) {
+      parts.add("正在观看");
+    }
+    if (multiSelectMode) {
+      parts.add(selectedForMultiRoom ? "同屏已选" : "未选择同屏");
+    }
+    return parts.join("，");
   }
 
   Site get _site => Sites.allSites[item.siteId]!;

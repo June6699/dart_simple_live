@@ -5,5 +5,5 @@ class PlatformUtils {
 
   static bool get isMobileApp => Platform.isAndroid || Platform.isIOS;
 
-  static bool get supportsInlineMultiRoom => !Platform.isAndroid;
+  static bool get supportsInlineMultiRoom => !isMobileApp;
 }

@@ -359,93 +359,45 @@ Widget _buildGestureLayer(
   bool enableQuickAccessLongPress = false,
 }) {
   return Positioned.fill(
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: controller.onTap,
-      onDoubleTapDown: controller.onDoubleTap,
-      onPanStart: (details) {
-        if (!_canUseDesktopVolumeDrag(controller, details.localPosition)) {
-          controller.desktopVolumeDragging = false;
-          return;
-        }
-        controller.desktopVolumeDragging = true;
-        controller.onVerticalDragStart(
-          DragStartDetails(
-            globalPosition: details.globalPosition,
-            localPosition: details.localPosition,
-          ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportSize = Size(
+          constraints.hasBoundedWidth ? constraints.maxWidth : Get.width,
+          constraints.hasBoundedHeight ? constraints.maxHeight : Get.height,
         );
+        return Obx(() {
+          final gestureEnabled =
+              AppSettingsController.instance.playerGestureControlEnable.value;
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: controller.onTap,
+            onDoubleTap: controller.onDoubleTap,
+            onLongPress: !enableQuickAccessLongPress
+                ? null
+                : () {
+                    if (controller.lockControlsState.value) {
+                      return;
+                    }
+                    showQuickAccess(controller);
+                  },
+            onVerticalDragStart: gestureEnabled
+                ? (details) => controller.onVerticalDragStart(
+                      details,
+                      viewportSize: viewportSize,
+                    )
+                : null,
+            onVerticalDragUpdate:
+                gestureEnabled ? controller.onVerticalDragUpdate : null,
+            onVerticalDragEnd:
+                gestureEnabled ? controller.onVerticalDragEnd : null,
+            onVerticalDragCancel:
+                gestureEnabled ? controller.onVerticalDragCancel : null,
+            child: const SizedBox.expand(),
+          );
+        });
       },
-      onPanUpdate: (details) {
-        if (!controller.desktopVolumeDragging) {
-          return;
-        }
-        controller.onVerticalDragUpdate(
-          DragUpdateDetails(
-            globalPosition: details.globalPosition,
-            localPosition: details.localPosition,
-            delta: details.delta,
-            primaryDelta: details.delta.dy,
-          ),
-        );
-      },
-      onPanEnd: (details) {
-        if (!controller.desktopVolumeDragging) {
-          return;
-        }
-        controller.desktopVolumeDragging = false;
-        controller.onVerticalDragEnd(
-          DragEndDetails(
-            primaryVelocity: details.velocity.pixelsPerSecond.dy,
-            velocity: details.velocity,
-          ),
-        );
-      },
-      onPanCancel: () {
-        if (!controller.desktopVolumeDragging) {
-          return;
-        }
-        controller.desktopVolumeDragging = false;
-        controller.onVerticalDragEnd(DragEndDetails());
-      },
-      onLongPress: !enableQuickAccessLongPress
-          ? null
-          : () {
-              if (controller.lockControlsState.value) {
-                return;
-              }
-              showQuickAccess(controller);
-            },
-      onVerticalDragStart: controller.onVerticalDragStart,
-      onVerticalDragUpdate: controller.onVerticalDragUpdate,
-      onVerticalDragEnd: controller.onVerticalDragEnd,
-      child: const SizedBox.expand(),
     ),
   );
-}
-
-bool _canUseDesktopVolumeDrag(
-  LiveRoomController controller,
-  Offset localPosition,
-) {
-  if (!(Platform.isWindows || Platform.isLinux)) {
-    return false;
-  }
-  if (controller.lockControlsState.value && controller.fullScreenState.value) {
-    return false;
-  }
-  if (!controller.showControlsState.value) {
-    return false;
-  }
-  final width = Get.width;
-  final height = Get.height;
-  if (width <= 0 || height <= 0) {
-    return false;
-  }
-  final inRightZone = localPosition.dx >= width * 0.72;
-  final inMiddleZone =
-      localPosition.dy >= height * 0.2 && localPosition.dy <= height * 0.8;
-  return inRightZone && inMiddleZone;
 }
 
 Widget _buildFullTopBar(
@@ -843,7 +795,8 @@ Widget _buildSideLockButton(
 
 Widget _buildGestureTip(LiveRoomController controller) {
   return Obx(() {
-    if (!controller.showGestureTip.value) {
+    final text = controller.gestureTipText.value.trim();
+    if (!controller.showGestureTip.value || text.isEmpty) {
       return const SizedBox.shrink();
     }
     return Center(
@@ -854,7 +807,7 @@ Widget _buildGestureTip(LiveRoomController controller) {
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
-          controller.gestureTipText.value,
+          text,
           style: const TextStyle(fontSize: 18, color: Colors.white),
         ),
       ),

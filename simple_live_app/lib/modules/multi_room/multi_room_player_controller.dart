@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -42,6 +43,11 @@ class MultiRoomPlayerController extends GetxController {
   int _qualityIndex = -1;
   int _lineIndex = 0;
   bool _disposed = false;
+  int _loadGeneration = 0;
+
+  bool _isLoadCurrent(int generation) {
+    return !_disposed && generation == _loadGeneration;
+  }
 
   String get title {
     final roomTitle = detail.value?.title.trim();
@@ -59,14 +65,21 @@ class MultiRoomPlayerController extends GetxController {
   }
 
   Future<void> load() async {
+    if (_disposed) {
+      return;
+    }
+    final generation = ++_loadGeneration;
     loading.value = true;
     errorText.value = "";
     liveStatus.value = false;
     try {
       await player.stop();
+      if (!_isLoadCurrent(generation)) {
+        return;
+      }
       final roomDetail =
           await item.site.liveSite.getRoomDetail(roomId: item.roomId);
-      if (_disposed) {
+      if (!_isLoadCurrent(generation)) {
         return;
       }
       detail.value = roomDetail;
@@ -74,27 +87,47 @@ class MultiRoomPlayerController extends GetxController {
       if (!liveStatus.value) {
         return;
       }
-      await _loadQualities(roomDetail);
-      await _loadPlayUrls(roomDetail);
-      await _openCurrentUrl();
+      await _loadQualities(roomDetail, generation);
+      if (!_isLoadCurrent(generation)) {
+        return;
+      }
+      await _loadPlayUrls(roomDetail, generation);
+      if (!_isLoadCurrent(generation)) {
+        return;
+      }
+      await _openCurrentUrl(generation);
+      if (!_isLoadCurrent(generation)) {
+        return;
+      }
     } catch (e) {
+      if (!_isLoadCurrent(generation)) {
+        return;
+      }
       Log.e(
         "多开直播间加载失败：${item.site.id}/${item.roomId} $e",
         StackTrace.current,
       );
       errorText.value = e.toString();
     } finally {
-      if (!_disposed) {
+      if (_isLoadCurrent(generation)) {
         loading.value = false;
       }
     }
   }
 
-  Future<void> _loadQualities(LiveRoomDetail roomDetail) async {
-    _qualities = await item.site.liveSite.getPlayQualites(detail: roomDetail);
-    if (_qualities.isEmpty) {
+  Future<void> _loadQualities(
+    LiveRoomDetail roomDetail,
+    int generation,
+  ) async {
+    final qualities =
+        await item.site.liveSite.getPlayQualites(detail: roomDetail);
+    if (!_isLoadCurrent(generation)) {
+      return;
+    }
+    if (qualities.isEmpty) {
       throw Exception("无法读取播放清晰度");
     }
+    _qualities = qualities;
     final qualityLevel = AppSettingsController.instance.qualityLevel.value;
     if (qualityLevel == 2) {
       _qualityIndex = 0;
@@ -106,11 +139,18 @@ class MultiRoomPlayerController extends GetxController {
     qualityInfo.value = _qualities[_qualityIndex].quality;
   }
 
-  Future<void> _loadPlayUrls(LiveRoomDetail roomDetail) async {
+  Future<void> _loadPlayUrls(
+    LiveRoomDetail roomDetail,
+    int generation,
+  ) async {
+    final quality = _qualities[_qualityIndex];
     final playUrl = await item.site.liveSite.getPlayUrls(
       detail: roomDetail,
-      quality: _qualities[_qualityIndex],
+      quality: quality,
     );
+    if (!_isLoadCurrent(generation)) {
+      return;
+    }
     if (playUrl.urls.isEmpty) {
       throw Exception("无法读取播放地址");
     }
@@ -120,14 +160,28 @@ class MultiRoomPlayerController extends GetxController {
     lineInfo.value = "线路${_lineIndex + 1}";
   }
 
-  Future<void> _openCurrentUrl() async {
+  Future<void> _openCurrentUrl(int generation) async {
+    if (!_isLoadCurrent(generation)) {
+      return;
+    }
     var url = _playUrls[_lineIndex];
     if (AppSettingsController.instance.playerForceHttps.value) {
       url = url.replaceAll("http://", "https://");
     }
     await player.open(Media(url, httpHeaders: _playHeaders));
+    if (!_isLoadCurrent(generation)) {
+      return;
+    }
     await player.setVolume(
-        muted.value ? 0 : AppSettingsController.instance.playerVolume.value);
+      PlayerVolumePolicy.internalVolume(
+        mobile: Platform.isAndroid || Platform.isIOS,
+        muted: muted.value,
+        persisted: AppSettingsController.instance.playerVolume.value,
+      ),
+    );
+    if (!_isLoadCurrent(generation)) {
+      return;
+    }
   }
 
   Future<void> refreshRoom() async {
@@ -138,13 +192,18 @@ class MultiRoomPlayerController extends GetxController {
   Future<void> toggleMute() async {
     muted.value = !muted.value;
     await player.setVolume(
-      muted.value ? 0 : AppSettingsController.instance.playerVolume.value,
+      PlayerVolumePolicy.internalVolume(
+        mobile: Platform.isAndroid || Platform.isIOS,
+        muted: muted.value,
+        persisted: AppSettingsController.instance.playerVolume.value,
+      ),
     );
   }
 
   @override
   void onClose() {
     _disposed = true;
+    _loadGeneration += 1;
     unawaited(player.stop());
     unawaited(player.dispose());
     super.onClose();

@@ -17,7 +17,7 @@ class SettingsController extends BaseController
   var tabIndex = 0.obs;
 
   SettingsController() {
-    tabController = TabController(length: 6, vsync: this);
+    tabController = TabController(length: 5, vsync: this);
     tabController.animation?.addListener(() {
       var currentIndex = (tabController.animation?.value ?? 0).round();
       if (tabIndex.value == currentIndex) {
@@ -34,12 +34,9 @@ class SettingsController extends BaseController
         autoUpdateFollowEnableFocusNode.requestFocus();
       }
       if (tabIndex.value == 3) {
-        multiRoomGapFocusNode.requestFocus();
-      }
-      if (tabIndex.value == 4) {
         bilibiliFoucsNode.requestFocus();
       }
-      if (tabIndex.value == 5) {
+      if (tabIndex.value == 4) {
         versionFocusNode.requestFocus();
       }
     });
@@ -70,8 +67,6 @@ class SettingsController extends BaseController
   var autoUpdateFollowDurationFocusNode = AppFocusNode();
   var updateFollowThreadFocusNode = AppFocusNode();
   var followPageSizeFocusNode = AppFocusNode();
-  var multiRoomGapFocusNode = AppFocusNode();
-
   var bilibiliFoucsNode = AppFocusNode();
   var versionFocusNode = AppFocusNode();
 

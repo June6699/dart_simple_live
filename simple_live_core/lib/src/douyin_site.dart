@@ -46,30 +46,49 @@ class DouyinSite implements LiveSite {
     _logDebug("$label 耗时 ${stopwatch.elapsedMilliseconds}ms");
   }
 
-  Map<String, dynamic> headers = {
-    "Authority": kDefaultAuthority,
-    "Referer": kDefaultReferer,
-    "User-Agent": kDefaultUserAgent,
-  };
-
-  Future<Map<String, dynamic>> getRequestHeaders() async {
-    try {
-      // 如果用户已设置 cookie，直接使用用户的 cookie
-      if (cookie.isNotEmpty) {
-        headers["cookie"] = cookie;
-        return headers;
-      }
-
-      // 使用默认的 ttwid cookie（只需要 ttwid 即可获取所有画质）
-      headers["cookie"] = kDefaultCookie;
-      return headers;
-    } catch (e) {
-      CoreLog.error(e);
-      if (!(headers["cookie"]?.toString().isNotEmpty ?? false)) {
-        headers["cookie"] = kDefaultCookie;
-      }
-      return headers;
+  Map<String, dynamic> _newRequestHeaders({
+    String? cookieValue,
+    String authority = kDefaultAuthority,
+    String referer = kDefaultReferer,
+  }) {
+    final requestHeaders = <String, dynamic>{
+      "Authority": authority,
+      "Referer": referer,
+      "User-Agent": kDefaultUserAgent,
+    };
+    final normalizedCookie = cookieValue?.trim() ?? "";
+    if (normalizedCookie.isNotEmpty) {
+      requestHeaders["cookie"] = normalizedCookie;
     }
+    return requestHeaders;
+  }
+
+  String _defaultPlaybackCookie() {
+    return DouyinCookieHelper.extractTtwid(kDefaultCookie) ?? kDefaultCookie;
+  }
+
+  String _customPlaybackCookie() {
+    return DouyinCookieHelper.extractTtwid(cookie) ?? "";
+  }
+
+  String _playbackCookie() {
+    final customTtwid = _customPlaybackCookie();
+    return customTtwid.isNotEmpty ? customTtwid : _defaultPlaybackCookie();
+  }
+
+  String _searchCookie() {
+    final savedCookie = cookie.trim();
+    return savedCookie.isNotEmpty ? savedCookie : _defaultPlaybackCookie();
+  }
+
+  Future<Map<String, dynamic>> getRequestHeaders({
+    bool includeFullCookie = false,
+  }) {
+    return Future.value(
+      _newRequestHeaders(
+        cookieValue: includeFullCookie ? _searchCookie() : _playbackCookie(),
+      ),
+    );
   }
 
   Future<String> _getDanmakuCookie(String webRid) async {
@@ -317,7 +336,7 @@ class DouyinSite implements LiveSite {
     }
     final arrayStart = html.indexOf("[", markerIndex);
     if (arrayStart < 0) {
-      throw CoreError("鎶栭煶鍒嗙被鏁版嵁瑙ｆ瀽澶辫触");
+      throw CoreError("抖音分类数据解析失败");
     }
     final escapedArray = _extractEscapedJsonArray(html, arrayStart);
     final normalizedJson = '{"categoryData":$escapedArray}'
@@ -876,13 +895,39 @@ class DouyinSite implements LiveSite {
   /// - [webRid] 直播间RID
   Future<Map> _getRoomDataByApi(String webRid) async {
     final stopwatch = Stopwatch()..start();
+    final result = await _requestWithCustomCookieFallback(
+      label: "抖音房间接口",
+      request: (cookieValue) =>
+          _requestRoomDataByApi(webRid, cookieValue: cookieValue),
+      hasData: _hasWebRoomData,
+    );
+
+    if (result is! Map) {
+      throw Exception("抖音接口返回格式异常");
+    }
+
+    final data = result["data"];
+    if (data is! Map) {
+      throw CoreError("抖音直播间数据为空，请稍后再试");
+    }
+    final rooms = data["data"];
+    if (rooms is! List || rooms.isEmpty) {
+      throw CoreError("抖音直播间数据为空，可能是房间不存在、未开播或被风控限制");
+    }
+
+    _logElapsed("_getRoomDataByApi($webRid)", stopwatch);
+    return data;
+  }
+
+  Future<dynamic> _requestRoomDataByApi(
+    String webRid, {
+    required String cookieValue,
+  }) async {
     String serverUrl = "https://live.douyin.com/webcast/room/web/enter/";
-
-    // 提前获取 headers
-    var requestHeader = await getRequestHeaders();
-
-    // 使用动态 Referer（包含房间号，参考 DouyinLiveRecorder）
-    requestHeader["Referer"] = "https://live.douyin.com/$webRid";
+    final requestHeader = _newRequestHeaders(
+      cookieValue: cookieValue,
+      referer: "https://live.douyin.com/$webRid",
+    );
 
     var uri = Uri.parse(serverUrl).replace(
       scheme: "https",
@@ -911,28 +956,49 @@ class DouyinSite implements LiveSite {
       header: requestHeader,
     );
     _logElapsed("_getRoomDataByApi($webRid) request", requestStopwatch);
-
-    if (result is! Map) {
-      throw Exception("抖音接口返回格式异常");
-    }
-
-    final data = result["data"];
-    if (data is! Map) {
-      throw CoreError("抖音直播间数据为空，请稍后再试");
-    }
-    final rooms = data["data"];
-    if (rooms is! List || rooms.isEmpty) {
-      throw CoreError("抖音直播间数据为空，可能是房间不存在、未开播或被风控限制");
-    }
-
-    _logElapsed("_getRoomDataByApi($webRid)", stopwatch);
-    return data;
+    return result;
   }
 
   /// 通过roomId获取直播间信息
   /// - [roomId] 直播间ID
   Future<Map> _getRoomDataByRoomId(String roomId) async {
-    var result = await HttpClient.instance.getJson(
+    final result = await _requestWithCustomCookieFallback(
+      label: "抖音 reflow 接口",
+      request: (cookieValue) =>
+          _requestRoomDataByRoomId(roomId, cookieValue: cookieValue),
+      hasData: _hasReflowRoomData,
+    );
+    return result;
+  }
+
+  Future<dynamic> _requestWithCustomCookieFallback({
+    required String label,
+    required Future<dynamic> Function(String cookieValue) request,
+    required bool Function(dynamic result) hasData,
+  }) async {
+    final customPlaybackCookie = _customPlaybackCookie();
+    dynamic result;
+    try {
+      result = await request(_playbackCookie());
+    } catch (error) {
+      if (customPlaybackCookie.isEmpty) {
+        rethrow;
+      }
+      _logDebug("$label 使用自定义 Cookie 请求失败，使用匿名 ttwid 重试：$error");
+      return request(_defaultPlaybackCookie());
+    }
+    if (customPlaybackCookie.isEmpty || hasData(result)) {
+      return result;
+    }
+    _logDebug("$label 返回空数据，使用匿名 ttwid 重试一次");
+    return request(_defaultPlaybackCookie());
+  }
+
+  Future<dynamic> _requestRoomDataByRoomId(
+    String roomId, {
+    required String cookieValue,
+  }) {
+    return HttpClient.instance.getJson(
       'https://webcast.amemv.com/webcast/room/reflow/info/',
       queryParameters: {
         "type_id": 0,
@@ -942,9 +1008,32 @@ class DouyinSite implements LiveSite {
         "version_code": "99.99.99",
         "app_id": 6383,
       },
-      header: await getRequestHeaders(),
+      header: _newRequestHeaders(cookieValue: cookieValue),
     );
-    return result;
+  }
+
+  bool _hasWebRoomData(dynamic result) {
+    if (result is! Map) {
+      return false;
+    }
+    final data = result["data"];
+    if (data is! Map) {
+      return false;
+    }
+    final rooms = data["data"];
+    return rooms is List && rooms.any((room) => room is Map && room.isNotEmpty);
+  }
+
+  bool _hasReflowRoomData(dynamic result) {
+    if (result is! Map) {
+      return false;
+    }
+    final data = result["data"];
+    if (data is! Map) {
+      return false;
+    }
+    final room = data["room"];
+    return room is Map && room.isNotEmpty;
   }
 
   @override
@@ -1101,7 +1190,7 @@ class DouyinSite implements LiveSite {
     );
     //var requlestUrl = await getAbogusUrl(uri.toString());
     var requlestUrl = uri.toString();
-    final requestHeaders = await getRequestHeaders();
+    final requestHeaders = await getRequestHeaders(includeFullCookie: true);
     var dyCookie = "";
     final savedCookie = _getCookieHeaderValue(requestHeaders);
     if (savedCookie.isNotEmpty) {

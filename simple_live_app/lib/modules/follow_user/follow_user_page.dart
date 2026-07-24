@@ -14,6 +14,7 @@ import 'package:simple_live_app/services/current_room_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/filter_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
+import 'package:simple_live_app/widgets/live_room_grid_layout.dart';
 import 'package:simple_live_app/widgets/page_grid_view.dart';
 
 class FollowUserPage extends GetView<FollowUserController> {
@@ -272,66 +273,70 @@ class FollowUserPage extends GetView<FollowUserController> {
                 ),
               ),
               Expanded(
-                child: Obx(
-                  () {
-                    final layout = _resolveLayoutSpec(context);
-                    return GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onHorizontalDragEnd: (details) {
-                        if (!controller.paginationEnabled.value) {
-                          return;
-                        }
-                        final velocity = details.primaryVelocity ?? 0;
-                        if (velocity < -260) {
-                          controller.goToNextPage();
-                        } else if (velocity > 260) {
-                          controller.goToPreviousPage();
-                        }
-                      },
-                      child: PageGridView(
-                        padding: const EdgeInsets.only(bottom: 96.0),
-                        crossAxisSpacing: layout.crossAxisSpacing,
-                        mainAxisSpacing: layout.mainAxisSpacing,
-                        mainAxisExtent: layout.mainAxisExtent,
-                        childAspectRatio: layout.childAspectRatio,
-                        useFixedGrid: true,
-                        crossAxisCount: layout.crossAxisCount,
-                        pageController: controller,
-                        firstRefresh: false,
-                        showPCRefreshButton: false,
-                        itemBuilder: (_, i) {
-                          final item = controller.list[i];
-                          final isCurrent = "${item.siteId}_${item.roomId}" ==
-                              CurrentRoomService.instance.currentKey;
-                          return FollowUserItem(
-                            item: item,
-                            style: layout.itemStyle,
-                            showLiveCover: AppSettingsController
-                                .instance.followShowLiveCover.value,
-                            onSpecialTap: () {
-                              controller.toggleSpecialFollow(item);
-                            },
-                            onRemove: () {
-                              controller.removeItem(item);
-                            },
-                            onTap: () {
-                              if (PlatformUtils.supportsInlineMultiRoom &&
-                                  controller.multiSelectMode.value) {
-                                controller.toggleMultiRoomItem(item);
-                                return;
-                              }
-                              controller.openFollowRoom(item);
-                            },
-                            onLongPress: () {
-                              setFollowTagDialog(item);
-                            },
-                            playing: controller.isSelectedForMultiRoom(item) ||
-                                isCurrent,
-                          );
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Obx(
+                    () {
+                      final layout = _resolveLayoutSpec(constraints.maxWidth);
+                      return GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onHorizontalDragEnd: (details) {
+                          if (!controller.paginationEnabled.value) {
+                            return;
+                          }
+                          final velocity = details.primaryVelocity ?? 0;
+                          if (velocity < -260) {
+                            controller.goToNextPage();
+                          } else if (velocity > 260) {
+                            controller.goToPreviousPage();
+                          }
                         },
-                      ),
-                    );
-                  },
+                        child: PageGridView(
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 96),
+                          crossAxisSpacing: layout.crossAxisSpacing,
+                          mainAxisSpacing: layout.mainAxisSpacing,
+                          mainAxisExtent: layout.mainAxisExtent,
+                          childAspectRatio: layout.childAspectRatio,
+                          useFixedGrid: true,
+                          crossAxisCount: layout.crossAxisCount,
+                          pageController: controller,
+                          firstRefresh: false,
+                          showPCRefreshButton: false,
+                          itemBuilder: (_, i) {
+                            final item = controller.list[i];
+                            final isCurrent = "${item.siteId}_${item.roomId}" ==
+                                CurrentRoomService.instance.currentKey;
+                            return FollowUserItem(
+                              item: item,
+                              style: layout.itemStyle,
+                              showLiveCover: AppSettingsController
+                                  .instance.followShowLiveCover.value,
+                              multiSelectMode: controller.multiSelectMode.value,
+                              selectedForMultiRoom:
+                                  controller.isSelectedForMultiRoom(item),
+                              onSpecialTap: () {
+                                controller.toggleSpecialFollow(item);
+                              },
+                              onRemove: () {
+                                controller.removeItem(item);
+                              },
+                              onTap: () {
+                                if (PlatformUtils.supportsInlineMultiRoom &&
+                                    controller.multiSelectMode.value) {
+                                  controller.toggleMultiRoomItem(item);
+                                  return;
+                                }
+                                controller.openFollowRoom(item);
+                              },
+                              onLongPress: () {
+                                setFollowTagDialog(item);
+                              },
+                              playing: isCurrent,
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             ],
@@ -351,8 +356,7 @@ class FollowUserPage extends GetView<FollowUserController> {
     );
   }
 
-  _FollowLayoutSpec _resolveLayoutSpec(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+  _FollowLayoutSpec _resolveLayoutSpec(double width) {
     final style = AppSettingsController.instance.followDisplayStyle.value;
     final showLiveCover =
         AppSettingsController.instance.followShowLiveCover.value;
@@ -369,18 +373,17 @@ class FollowUserPage extends GetView<FollowUserController> {
       );
     }
     if (style == "card") {
-      final crossAxisCount = mobile
-          ? (width >= 720 ? 3 : 2)
-          : (width >= 1680 ? 4 : (width >= 1220 ? 3 : 2));
-      final availableWidth = width - 16 - (crossAxisCount - 1) * 12;
-      final cardWidth = availableWidth / crossAxisCount;
-      final coverHeight = cardWidth * 9 / 16;
-      final cardExtent = showLiveCover
-          ? coverHeight + (mobile ? 108 : 116)
-          : (mobile ? 178.0 : 190.0);
+      final grid = LiveRoomGridLayout.resolve(
+        width,
+        horizontalPadding: 8,
+        spacing: 12,
+        detailsExtent: FollowUserItem.previewDetailsExtent,
+      );
+      final cardExtent =
+          showLiveCover ? grid.mainAxisExtent : (mobile ? 178.0 : 190.0);
       return _FollowLayoutSpec(
         itemStyle: FollowUserItemStyle.card,
-        crossAxisCount: crossAxisCount,
+        crossAxisCount: grid.crossAxisCount,
         mainAxisExtent: cardExtent,
         childAspectRatio: 0.9,
         crossAxisSpacing: 12,
@@ -902,4 +905,3 @@ class _FollowLayoutSpec {
     required this.mainAxisSpacing,
   });
 }
-

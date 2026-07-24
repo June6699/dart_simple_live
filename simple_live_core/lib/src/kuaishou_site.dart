@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
+import 'package:simple_live_core/src/common/kuaishou_live_link.dart';
 import 'package:simple_live_core/src/danmaku/kuaishou_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_site.dart';
@@ -361,7 +362,7 @@ class KuaishouSite extends LiveSite {
 
   Future<LiveSearchRoomResult> _searchRoomsByOverview(String keyword) async {
     var overview = await _getSearchOverview(keyword);
-    var liveStreams = _findOverviewSectionList(overview, "liveStreams");
+    var liveStreams = overviewLiveStreams(overview);
     var items = <LiveRoomItem>[];
     for (var item in liveStreams) {
       var room = _parseSearchLiveRoom(item);
@@ -372,27 +373,21 @@ class KuaishouSite extends LiveSite {
     if (items.isNotEmpty) {
       return LiveSearchRoomResult(hasMore: false, items: items);
     }
+    return LiveSearchRoomResult(hasMore: false, items: <LiveRoomItem>[]);
+  }
 
-    var categories = _findOverviewSectionList(overview, "categories");
-    if (categories.isEmpty) {
-      return LiveSearchRoomResult(hasMore: false, items: <LiveRoomItem>[]);
+  static List<dynamic> overviewLiveStreams(Map overview) {
+    final sections = overview["list"];
+    if (sections is! List) {
+      return const <dynamic>[];
     }
-
-    var firstCategory = categories.first;
-    var categoryId = firstCategory["categoryId"]?.toString() ?? '';
-    if (categoryId.isEmpty) {
-      return LiveSearchRoomResult(hasMore: false, items: <LiveRoomItem>[]);
+    for (final section in sections) {
+      if (section is Map && section["type"] == "liveStreams") {
+        final items = section["list"];
+        return items is List ? List<dynamic>.from(items) : const <dynamic>[];
+      }
     }
-
-    var result = await getCategoryRooms(
-      LiveSubCategory(
-        id: categoryId,
-        name: firstCategory["title"]?.toString() ?? keyword,
-        parentId: firstCategory["category"]?.toString() ?? '',
-        pic: firstCategory["src"]?.toString(),
-      ),
-    );
-    return LiveSearchRoomResult(hasMore: result.hasMore, items: result.items);
+    return const <dynamic>[];
   }
 
   @override
@@ -669,7 +664,11 @@ class KuaishouSite extends LiveSite {
         introduction: author["description"]?.toString(),
         notice: author["description"]?.toString(),
         status: isLiving,
-        url: liveStreamId,
+        url:
+            KuaishouLiveLink.publicRoomUri(
+              author["id"]?.toString() ?? roomId,
+            )?.toString() ??
+            "https://live.kuaishou.com/u/$roomId",
         data: liveStream["playUrls"],
         danmakuData: KuaishouDanmakuArgs(
           roomId: author["id"]?.toString() ?? roomId,

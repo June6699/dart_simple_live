@@ -21,6 +21,10 @@ class Log {
     await writer?.close();
   }
 
+  static Future<void> flushWriter() async {
+    await logFileWriter?.flush();
+  }
+
   static void writeLog(content, [Level level = Level.info]) {
     logFileWriter
         ?.write("[${level.name.toUpperCase()}] $_currentTime：$content");
@@ -125,6 +129,10 @@ class LogFileWriter {
   void write(String content) {
     fileWriter?.write(content);
     fileWriter?.write("\r\n");
+  }
+
+  Future<void> flush() async {
+    await fileWriter?.flush();
   }
 
   Future close() async {

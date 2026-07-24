@@ -149,16 +149,30 @@ class OtherSettingsController extends BaseController {
   }
 
   void saveLogFile(LogFileModel item) async {
-    var filePath = await FilePicker.platform.saveFile(
-      allowedExtensions: ['log'],
-      type: FileType.custom,
-      fileName: item.name,
-      bytes: Uint8List(0),
-    );
-    if (filePath != null) {
-      var file = File(item.path);
-      await file.copy(filePath);
+    try {
+      await Log.flushWriter();
+      final source = File(item.path);
+      if (!await source.exists()) {
+        SmartDialog.showToast("日志文件不存在");
+        return;
+      }
+      final inlineSave = Platform.isAndroid || Platform.isIOS || kIsWeb;
+      final bytes = inlineSave ? await source.readAsBytes() : null;
+      final filePath = await FilePicker.platform.saveFile(
+        allowedExtensions: ['log'],
+        type: FileType.custom,
+        fileName: item.name,
+        bytes: bytes,
+      );
+      if (filePath == null) {
+        return;
+      }
+      if (!inlineSave) {
+        await source.copy(filePath);
+      }
       SmartDialog.showToast("保存成功");
+    } catch (e) {
+      SmartDialog.showToast("保存失败：$e");
     }
   }
 
