@@ -30,7 +30,27 @@ class ProfileBackupService extends GetxService {
     LocalStorageService.kWebDAVPassword,
     LocalStorageService.kWebDAVLastUploadTime,
     LocalStorageService.kWebDAVLastRecoverTime,
+    // 斗鱼匿名设备号是本设备身份，不随配置包/备份/恢复迁移：
+    // 每台设备保持独立 did，避免多设备共用同一"设备"触发风控
+    LocalStorageService.kDouyuDeviceId,
   };
+
+  /// 只随本机、绝不随任何备份/同步通道迁移的键。
+  /// WebDAV zip 等全量 settings 通道也必须过滤这些键。
+  static const Set<String> deviceLocalSettings = {
+    LocalStorageService.kDouyuDeviceId,
+  };
+
+  /// 导出/上传前剔除本机专属键
+  static Map<dynamic, dynamic> stripDeviceLocalSettings(
+    Map<dynamic, dynamic> raw,
+  ) {
+    return {
+      for (final entry in raw.entries)
+        if (!deviceLocalSettings.contains(entry.key.toString()))
+            entry.key: entry.value,
+    };
+  }
 
   Map<String, dynamic> exportProfileMap() {
     final settingsPayload = _exportSettings();

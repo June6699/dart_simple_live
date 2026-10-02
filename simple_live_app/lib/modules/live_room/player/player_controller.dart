@@ -1910,6 +1910,10 @@ class PlayerController extends BaseController
   /// App 是否处于后台（LiveRoomController 覆盖）
   bool get isAppBackground => false;
 
+  /// 听直播模式（LiveRoomController 覆盖）：
+  /// 开启时无条件保持后台播放服务，且不依赖"允许后台播放"设置
+  bool get listenModeEnabled => false;
+
   /// 是否仍期望继续播放（房间关闭/确认下播时为 false）
   bool get playbackIntended => !_playerClosing;
 
@@ -2153,7 +2157,14 @@ class PlayerController extends BaseController
         _surfaceRecoveryGraceUntil =
             DateTime.now().add(_surfaceRecoveryGraceDuration);
         unawaited(_applyResolvedPlayerVolume());
-        WakelockPlus.enable();
+        if (listenModeEnabled) {
+          // 听直播：重连/刷新/自动切房重新 open 后视频轨可能回到默认，
+          // 每次起播都重申禁视频轨；并保持息屏（不持有唤醒锁）
+          unawaited(player.setVideoTrack(VideoTrack.no()));
+          unawaited(WakelockPlus.disable());
+        } else {
+          WakelockPlus.enable();
+        }
         _playbackReconnecting = false;
         unawaited(_syncBackgroundPlayback());
         Log.d("Playing");
@@ -2654,15 +2665,17 @@ class PlayerController extends BaseController
 
   /// 统一同步后台播放前台服务：
   /// 仅在【后台 + 开启后台播放 + 仍期望播放】时保持 FGS；
+  /// 听直播模式下无条件保持（不依赖"允许后台播放"设置，前台也常驻通知）；
   /// 重连期间状态为 reconnecting，FGS 全程不撤销。
   Future<void> _syncBackgroundPlayback() async {
     if (!Platform.isAndroid) {
       return;
     }
     final service = BackgroundPlaybackService.instance;
+    final forced = listenModeEnabled;
     final enabled =
-        AppSettingsController.instance.allowBackgroundPlayback.value;
-    if (!enabled || !isAppBackground || !playbackIntended) {
+        AppSettingsController.instance.allowBackgroundPlayback.value || forced;
+    if (!enabled || (!isAppBackground && !forced) || !playbackIntended) {
       await service.stop();
       return;
     }

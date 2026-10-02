@@ -215,7 +215,9 @@ class WebDavController extends BaseController {
       },
     });
     _addJsonFile(archive, _userSettingsJsonName, {
-      'data': LocalStorageService.instance.settingsBox.toMap(),
+      'data': ProfileBackupService.stripDeviceLocalSettings(
+        LocalStorageService.instance.settingsBox.toMap(),
+      ),
     });
     return ZipEncoder().encode(archive);
   }

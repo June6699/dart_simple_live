@@ -219,6 +219,17 @@ class _DanmakuScreenState extends State<DanmakuScreen>
         return;
       }
     } else {
+      // 滚动弹幕快速预判（#137 高热房间性能）：轨道满时每条消息仍要付
+      // 3 次文本排版（测宽/正文/描边）然后被丢弃，是 UI 线程的大头开销。
+      // 这里先用不含宽度的保守条件判断是否存在可进入的轨道，没有则
+      // 直接丢弃，省掉全部排版；selfSend / 海量弹幕模式仍走完整流程。
+      if (content.type == DanmakuItemType.scroll &&
+          (_option.hideScroll ||
+              (!_option.massiveMode &&
+                  !content.selfSend &&
+                  !_hasEnterableScrollTrack()))) {
+        return;
+      }
       // 在这里提前创建 Paragraph 缓存防止卡顿
       final contentSize = Utils.measureContent(
         content,
@@ -528,6 +539,26 @@ class _DanmakuScreenState extends State<DanmakuScreen>
       }
     }
     return true;
+  }
+
+  /// 保守预判是否存在可进入的滚动轨道：只检查"轨道上最后一条弹幕的
+  /// 尾部是否已完全进入屏幕"（不需要知道新弹幕宽度）。可能放行后仍在
+  /// 精确判定中被拒绝，但不会错杀——用于在文本排版前提前丢弃。
+  bool _hasEnterableScrollTrack() {
+    for (final yPosition in _trackYPositions) {
+      var enterable = true;
+      for (var item in _scrollDanmakuItems) {
+        if (item.yPosition == yPosition &&
+            item.xPosition + item.width > _viewWidth) {
+          enterable = false;
+          break;
+        }
+      }
+      if (enterable) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 确定顶部弹幕是否可以添加

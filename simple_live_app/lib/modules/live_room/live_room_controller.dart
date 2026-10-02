@@ -23,6 +23,7 @@ import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/modules/live_room/player/player_controller.dart';
+import 'package:simple_live_app/modules/live_room/listen_live_page.dart';
 import 'package:simple_live_app/modules/live_room/live_status_refresh_policy.dart';
 import 'package:simple_live_app/modules/live_room/widgets/live_contribution_rank_panel.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
@@ -216,6 +217,13 @@ class LiveRoomController extends PlayerController
   int _bufferingSampleCount = 0;
   bool _watchdogRefreshing = false;
   DateTime? _lastWatchdogRefreshAt;
+
+  /// 断流自动恢复记账：恢复成功即重置重试计数（"连续失败"语义），
+  /// 并记录恢复时刻；5 分钟内成功恢复次数过多说明流本身不可持续，
+  /// 不再无限重试，走下播/换台兜底，避免死循环耗电。
+  final List<DateTime> _playbackRecoveryTimes = [];
+  static const int _maxRecoveriesPerWindow = 6;
+  static const Duration _recoveryWindow = Duration(minutes: 5);
   Duration? _positionBeforeBackground;
   DateTime? _backgroundedAt;
   Duration? _positionBeforeWindowBlur;
@@ -766,6 +774,66 @@ class LiveRoomController extends PlayerController
     _pendingDanmakuTimers.clear();
   }
 
+  // ---- 弹幕消息批量合帧（#137）----
+  // 聊天消息先入缓冲，150ms（或缓冲超限）一帧统一上屏：
+  // 列表一次 addAll + 一次滚动 + 一次弹幕调度，把高热房间每秒
+  // 几十次的列表重建压到每秒 6-7 次。过滤/屏蔽/去重仍逐条执行。
+  static const Duration _chatFlushInterval = Duration(milliseconds: 150);
+  static const int _chatFlushThreshold = 40;
+  final List<LiveMessage> _pendingChatMessages = [];
+  Timer? _chatFlushTimer;
+
+  void _queueChatMessage(LiveMessage msg) {
+    _pendingChatMessages.add(msg);
+    if (_pendingChatMessages.length >= _chatFlushThreshold) {
+      _flushChatMessages();
+      return;
+    }
+    _chatFlushTimer ??= Timer(_chatFlushInterval, _flushChatMessages);
+  }
+
+  void _flushChatMessages() {
+    _chatFlushTimer?.cancel();
+    _chatFlushTimer = null;
+    if (_pendingChatMessages.isEmpty) {
+      return;
+    }
+    final batch = List<LiveMessage>.from(_pendingChatMessages);
+    _pendingChatMessages.clear();
+
+    // 与旧逐条逻辑等价的滚动窗口裁剪：自动跟随时聊天列表保持约 200 条
+    if (!disableAutoScroll.value) {
+      final keep = 200 - batch.length;
+      if (keep <= 0) {
+        messages.clear();
+      } else if (messages.length > keep) {
+        messages.removeRange(0, messages.length - keep);
+      }
+    }
+    messages.addAll(batch);
+
+    // 限制消息列表大小，防止内存溢出（特别是 iOS）
+    if (messages.length > 1000) {
+      messages.removeRange(0, 500); // 保留最近 500 条
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => chatScrollToBottom(),
+    );
+    if (!liveStatus.value || (isBackground && !_allowBackgroundPlayback)) {
+      return;
+    }
+    for (var item in batch) {
+      _scheduleOverlayDanmaku(item);
+    }
+  }
+
+  void _cancelChatFlushTimer() {
+    _chatFlushTimer?.cancel();
+    _chatFlushTimer = null;
+    _pendingChatMessages.clear();
+  }
+
   void _scheduleOverlayDanmaku(LiveMessage msg) {
     final color = Color.fromARGB(
       255,
@@ -1249,6 +1317,12 @@ class LiveRoomController extends PlayerController
     await _runAutoExitStep("停止弹幕", liveDanmaku.stop);
     await _runAutoExitStep("停止播放器", player.stop);
     await _runAutoExitStep("释放唤醒锁", WakelockPlus.disable);
+    // 定时关闭属于"正常收播"而非意外中断：清掉恢复标记，
+    // 避免下次启动自动进房开播（闪退反馈的崩溃路径）
+    await _runAutoExitStep(
+      "清除恢复标记",
+      () => AppSettingsController.instance.setLastLiveRoomResumePending(false),
+    );
     Log.i("定时关闭准备退出应用");
     await _finishAutoExit();
   }
@@ -1278,20 +1352,26 @@ class LiveRoomController extends PlayerController
       return;
     }
     if (Platform.isAndroid) {
+      var taskRemoved = false;
       try {
         final finished = await _appWindowChannel
             .invokeMethod<bool>(
               'finishAndRemoveTask',
             )
             .timeout(const Duration(seconds: 2));
-        if (finished == true) {
-          return;
-        }
+        taskRemoved = finished == true;
       } catch (e) {
         Log.d("原生移除任务失败，回退 Flutter 退出：$e");
       }
-      await _runAutoExitStep("Flutter 退出应用", SystemNavigator.pop);
-      return;
+      if (!taskRemoved) {
+        await _runAutoExitStep("Flutter 退出应用", SystemNavigator.pop);
+      }
+      // finishAndRemoveTask 只结束任务不杀进程：进程残留会被系统缓存，
+      // 用户快速重开时在同一进程里创建第二个 Flutter 引擎，播放器原生
+      // 初始化可能直接崩溃（表现为首次打开闪退、二次打开正常）。
+      // 这里主动结束进程，保证下次启动必然是冷启动。
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      exit(0);
     }
     try {
       if (Platform.isWindows) {
@@ -1313,6 +1393,107 @@ class LiveRoomController extends PlayerController
     autoExitSource.value = AutoExitSource.none;
     _autoExitCompleting = false;
     countdown.value = 0;
+  }
+
+  // ── 听直播模式 ──────────────────────────────────────────
+  // 禁用视频轨只留音频（省电省流量），页面隐藏弹幕与视频，
+  // Android 前台服务无条件保持（不依赖"允许后台播放"设置）。
+
+  @override
+  bool get listenModeEnabled => listenMode.value;
+
+  /// 是否处于听直播模式
+  var listenMode = false.obs;
+
+  /// 听直播定时关闭剩余秒数（0 = 未启用）
+  var listenExitCountdown = 0.obs;
+
+  /// 听直播定时关闭所选时长（分钟，0 = 未启用；用于勾选态显示，不随倒计时漂移）
+  var listenExitTotalMinutes = 0.obs;
+  Timer? _listenExitTimer;
+
+  /// 进入听直播模式并打开听直播页
+  void openListenMode() {
+    if (listenMode.value) {
+      return;
+    }
+    enterListenMode();
+    Get.to(() => const ListenLivePage());
+  }
+
+  void enterListenMode() {
+    if (listenMode.value) {
+      return;
+    }
+    listenMode.value = true;
+    unawaited(_applyListenVideoTrack());
+    // 听直播不渲染弹幕，省流量省电；退出时重启
+    liveDanmaku.stop();
+    // 听直播允许息屏继续播放，不持有唤醒锁
+    unawaited(WakelockPlus.disable());
+    unawaited(syncBackgroundPlayback());
+    Log.i("进入听直播模式");
+  }
+
+  /// 退出听直播模式（听直播页关闭时调用）
+  void exitListenMode() {
+    if (!listenMode.value) {
+      return;
+    }
+    listenMode.value = false;
+    _cancelListenExitTimer();
+    listenExitCountdown.value = 0;
+    listenExitTotalMinutes.value = 0;
+    unawaited(_restoreVideoTrack());
+    if (detail.value != null) {
+      liveDanmaku.start(detail.value?.danmakuData);
+    }
+    unawaited(syncBackgroundPlayback());
+    Log.i("退出听直播模式");
+  }
+
+  Future<void> _applyListenVideoTrack() async {
+    try {
+      await player.setVideoTrack(VideoTrack.no());
+    } catch (e) {
+      Log.logPrint(e);
+    }
+  }
+
+  Future<void> _restoreVideoTrack() async {
+    try {
+      await player.setVideoTrack(VideoTrack.auto());
+    } catch (e) {
+      Log.logPrint(e);
+    }
+  }
+
+  /// 听直播定时关闭（分钟，0 = 取消）。到点后与"定时关闭"一致，直接退出应用。
+  void setListenExitTimer(int minutes) {
+    _cancelListenExitTimer();
+    listenExitTotalMinutes.value = minutes;
+    if (minutes <= 0) {
+      listenExitCountdown.value = 0;
+      return;
+    }
+    listenExitCountdown.value = minutes * 60;
+    _listenExitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final remain = listenExitCountdown.value - 1;
+      if (remain <= 0) {
+        timer.cancel();
+        _listenExitTimer = null;
+        listenExitCountdown.value = 0;
+        Log.i("听直播定时关闭到点");
+        unawaited(_completeAutoExit());
+        return;
+      }
+      listenExitCountdown.value = remain;
+    });
+  }
+
+  void _cancelListenExitTimer() {
+    _listenExitTimer?.cancel();
+    _listenExitTimer = null;
   }
 
   Future<bool> syncAutoPipOnLeave() async {
@@ -1345,6 +1526,7 @@ class LiveRoomController extends PlayerController
     _clearSuperChatState();
     _clearContributionRankState();
     clearLiveEventFlow();
+    _resetPlaybackRecoveryBookkeeping();
     liveDanmaku.stop();
     if (detail.value != null) {
       getSuperChatMessage();
@@ -1368,6 +1550,8 @@ class LiveRoomController extends PlayerController
     _roomDisposed = true;
     clearTransientPlayerOverlays();
     _loadGeneration += 1;
+    _cancelListenExitTimer();
+    listenMode.value = false;
     WidgetsBinding.instance.removeObserver(this);
     if (_usesDesktopWindowManager) {
       windowManager.removeListener(this);
@@ -1388,6 +1572,7 @@ class LiveRoomController extends PlayerController
     _chatBottomRestoreTimer?.cancel();
     _memoryCleanupTimer?.cancel(); // 取消内存清理定时器
     _cancelPendingDanmakuTimers();
+    _cancelChatFlushTimer();
     clearDanmakuReplayHistory();
     _liveDurationTimer?.cancel();
     _positionSubscription?.cancel();
@@ -1442,9 +1627,6 @@ class LiveRoomController extends PlayerController
   void onWSMessage(LiveMessage msg) {
     msg = _sanitizeLiveMessage(msg);
     if (msg.type == LiveMessageType.chat) {
-      if (messages.length > 200 && !disableAutoScroll.value) {
-        messages.removeAt(0);
-      }
       if (_isUserShielded(msg.userName) || isTempMutedUser(msg.userName)) {
         Log.d("已过滤被屏蔽用户: ${msg.userName}");
         return;
@@ -1460,20 +1642,9 @@ class LiveRoomController extends PlayerController
         return;
       }
 
-      messages.add(msg);
-
-      // 限制消息列表大小，防止内存溢出（特别是 iOS）
-      if (messages.length > 1000) {
-        messages.removeRange(0, 500); // 保留最近 500 条
-      }
-
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => chatScrollToBottom(),
-      );
-      if (!liveStatus.value || (isBackground && !_allowBackgroundPlayback)) {
-        return;
-      }
-      _scheduleOverlayDanmaku(msg);
+      // 过滤保持逐条，UI 更新批量合帧（#137：高热房间每秒几十条，
+      // 逐条 add 会以同样频率重建聊天列表与调度弹幕排版）
+      _queueChatMessage(msg);
       return;
     } else if (msg.type == LiveMessageType.online) {
       online.value = msg.data;
@@ -1556,6 +1727,7 @@ class LiveRoomController extends PlayerController
     final targetRoomId = roomId;
     final loadStopwatch = Stopwatch()..start();
     _dismissLiveRoomLoadingOverlay();
+    _resetPlaybackRecoveryBookkeeping();
     try {
       loadError.value = false;
       error = null;
@@ -1568,6 +1740,9 @@ class LiveRoomController extends PlayerController
       liveDanmaku = targetSite.liveSite.getDanmaku();
       _clearContributionRankState();
       _clearSuperChatState();
+      // 先把上一间房的缓冲消息落进列表（与旧版跨房保留聊天一致），
+      // 且必须先于 _cancelPendingDanmakuTimers，避免冲刷出的弹幕定时器漏到新房
+      _flushChatMessages();
       _cancelPendingDanmakuTimers();
       clearDanmakuReplayHistory();
       rebuildDanmakuView();
@@ -1649,7 +1824,10 @@ class LiveRoomController extends PlayerController
         return;
       }
       initDanmau();
-      liveDanmaku.start(detail.value?.danmakuData);
+      // 听直播模式不消费弹幕（页面不渲染），切房/刷新后也保持关闭
+      if (!listenMode.value) {
+        liveDanmaku.start(detail.value?.danmakuData);
+      }
       startLiveDurationTimer();
     } catch (e, stackTrace) {
       Log.logPrint(e);
@@ -1921,6 +2099,7 @@ class LiveRoomController extends PlayerController
       return;
     }
     _startPlaybackWatchdog();
+    _onPlaybackRecovered();
     openStopwatch.stop();
     Log.i(
       "播放器打开完成：${site.id}/$roomId ${openStopwatch.elapsedMilliseconds}ms "
@@ -1998,7 +2177,7 @@ class LiveRoomController extends PlayerController
       return;
     }
     super.mediaEnd();
-    if (mediaErrorRetryCount < 2) {
+    if (mediaErrorRetryCount < 2 && !_playbackRecoveryStormDetected) {
       Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
         // 第二次重试前稍等一秒
@@ -2008,26 +2187,99 @@ class LiveRoomController extends PlayerController
         return;
       }
       mediaErrorRetryCount += 1;
-      await setPlayer(refreshUrls: _shouldRefreshUrlsOnPlaybackRetry);
+      await _recoverPlaybackOnce();
       return;
     }
 
     Log.d("播放结束");
-    // 依次尝试剩余线路，全部失败后再判定为已下播。
-    if (playUrls.length - 1 == currentLineIndex) {
-      if (site.id == Constant.kHuya) {
-        currentLineIndex = 0;
-        mediaErrorRetryCount = 0;
-        await setPlayer(refreshUrls: true);
-        return;
-      }
-      liveStatus.value = false;
-      await _tryAutoSwitchToNextLiveRoom(reason: "live_end");
-    } else {
-      await changePlayLine(currentLineIndex + 1);
+    await _playbackRetriesExhausted();
+  }
 
-      //setPlayer();
+  /// 单次断流恢复：刷新播放地址并重开播放器。取流/打开抛出的异常
+  /// 不再让它静默中断恢复链路（旧逻辑异常直接逃逸，页面会冻住在"播放中"），
+  /// 而是立即走兜底判定。
+  Future<void> _recoverPlaybackOnce() async {
+    try {
+      await setPlayer(refreshUrls: _shouldRefreshUrlsOnPlaybackRetry);
+    } catch (e, stackTrace) {
+      Log.e("断流恢复失败：$e", stackTrace);
+      await _playbackRetriesExhausted();
     }
+  }
+
+  /// 重试耗尽后的兜底：优先切换剩余线路；已是最末线路且未触发恢复风暴时，
+  /// 虎牙/斗鱼重置计数重新签名再试一轮（斗鱼常只返回一条线路，靠重签兜底）；
+  /// 否则判定下播并尝试自动换台。
+  Future<void> _playbackRetriesExhausted({
+    bool fromError = false,
+    String? error,
+  }) async {
+    if (playUrls.length - 1 != currentLineIndex) {
+      await changePlayLine(currentLineIndex + 1);
+      return;
+    }
+    if ((site.id == Constant.kHuya || site.id == Constant.kDouyu) &&
+        !_playbackRecoveryStormDetected) {
+      Log.d("末线路重试耗尽，重新签名再试一轮：${site.id}/$roomId");
+      currentLineIndex = 0;
+      mediaErrorRetryCount = 0;
+      try {
+        await setPlayer(refreshUrls: true);
+      } catch (e, stackTrace) {
+        Log.e("重签恢复失败：$e", stackTrace);
+        _markPlaybackGivenUp(fromError: fromError, error: error ?? e.toString());
+        await _tryAutoSwitchToNextLiveRoom(
+          reason: fromError ? "playback_failure" : "live_end",
+        );
+      }
+      return;
+    }
+    _markPlaybackGivenUp(fromError: fromError, error: error);
+    await _tryAutoSwitchToNextLiveRoom(
+      reason: fromError ? "playback_failure" : "live_end",
+    );
+  }
+
+  void _markPlaybackGivenUp({bool fromError = false, String? error}) {
+    liveStatus.value = false;
+    if (fromError) {
+      errorMsg.value = "播放失败";
+      SmartDialog.showToast("播放失败: ${error ?? ''}");
+    }
+  }
+
+  /// 播放器成功打开后调用：把断流重试计数归零（"连续失败"语义——
+  /// 周期性被服务端掐流的房间，不再第 3 次断流就被误判下播），
+  /// 同时记录恢复时刻用于恢复风暴检测。
+  void _onPlaybackRecovered() {
+    if (mediaErrorRetryCount > 0) {
+      final now = DateTime.now();
+      _playbackRecoveryTimes.add(now);
+      _playbackRecoveryTimes.removeWhere(
+        (t) => t.isBefore(now.subtract(_recoveryWindow)),
+      );
+      if (_playbackRecoveryTimes.length >= _maxRecoveriesPerWindow) {
+        Log.i(
+          "断流恢复风暴：${_recoveryWindow.inMinutes}分钟内已恢复"
+          "${_playbackRecoveryTimes.length}次，暂停自动重试",
+        );
+      }
+    }
+    mediaErrorRetryCount = 0;
+  }
+
+  /// 恢复风暴：短时间内反复"断→恢复"，说明流本身不可持续，
+  /// 停止无限自动重试，走下播兜底，避免耗电与刷屏。
+  bool get _playbackRecoveryStormDetected {
+    final cutoff = DateTime.now().subtract(_recoveryWindow);
+    _playbackRecoveryTimes.removeWhere((t) => t.isBefore(cutoff));
+    return _playbackRecoveryTimes.length >= _maxRecoveriesPerWindow;
+  }
+
+  /// 手动刷新 / 进入新房间时清空恢复记账
+  void _resetPlaybackRecoveryBookkeeping() {
+    mediaErrorRetryCount = 0;
+    _playbackRecoveryTimes.clear();
   }
 
   int mediaErrorRetryCount = 0;
@@ -2048,7 +2300,7 @@ class LiveRoomController extends PlayerController
       return;
     }
     super.mediaError(error);
-    if (mediaErrorRetryCount < 2) {
+    if (mediaErrorRetryCount < 2 && !_playbackRecoveryStormDetected) {
       Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
         // 第二次重试前稍等一秒
@@ -2058,25 +2310,11 @@ class LiveRoomController extends PlayerController
         return;
       }
       mediaErrorRetryCount += 1;
-      await setPlayer(refreshUrls: _shouldRefreshUrlsOnPlaybackRetry);
+      await _recoverPlaybackOnce();
       return;
     }
 
-    if (playUrls.length - 1 == currentLineIndex) {
-      if (site.id == Constant.kHuya) {
-        currentLineIndex = 0;
-        mediaErrorRetryCount = 0;
-        await setPlayer(refreshUrls: true);
-        return;
-      }
-      errorMsg.value = "播放失败";
-      SmartDialog.showToast("播放失败: $error");
-      await _tryAutoSwitchToNextLiveRoom(reason: "playback_failure");
-    } else {
-      //currentLineIndex += 1;
-      //setPlayer();
-      await changePlayLine(currentLineIndex + 1);
-    }
+    await _playbackRetriesExhausted(fromError: true, error: error);
   }
 
   StreamSubscription<IosAudioSessionEvent>? _iosAudioEventSubscription;
@@ -3532,7 +3770,7 @@ ${errorStackTrace ?? ""}''');
       isBackground = true;
       _backgroundedAt = DateTime.now();
       _positionBeforeBackground = _lastKnownPlayerPosition;
-      if (!_allowBackgroundPlayback) {
+      if (!_autoExitCompleting && !_allowBackgroundPlayback) {
         unawaited(
           AppSettingsController.instance.saveLastLiveRoom(
             siteId: site.id,

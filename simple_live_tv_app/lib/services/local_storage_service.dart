@@ -144,6 +144,9 @@ class LocalStorageService extends GetxService {
   /// 斗鱼cookie
   static const String kDouyuCookie = "DouyuCookie";
 
+  /// 斗鱼本设备持久化设备号（匿名身份用）
+  static const String kDouyuDeviceId = "DouyuDeviceId";
+
   /// 抖音cookie
   static const String kDouyinCookie = "DouyinCookie";
 

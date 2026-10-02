@@ -223,7 +223,11 @@ class RemoteSyncWebDAVController extends BaseController {
       _addJsonFile(
         archive,
         _userSettingsJsonName,
-        {'data': LocalStorageService.instance.settingsBox.toMap()},
+        {
+          'data': ProfileBackupService.stripDeviceLocalSettings(
+            LocalStorageService.instance.settingsBox.toMap(),
+          ),
+        },
       );
       final zipEncoder = ZipEncoder();
       zipBytes = zipEncoder.encode(archive);
@@ -390,8 +394,15 @@ class RemoteSyncWebDAVController extends BaseController {
         }
       } else if (file.name == _userSettingsJsonName) {
         try {
+          // 全量替换前保留本机专属键（斗鱼匿名设备号），并剥离备份里
+          // 携带的其他设备号，避免多设备共用同一"设备"身份
+          final preserved =
+              ProfileBackupService.deviceLocalSettingsSnapshot();
           await LocalStorageService.instance.settingsBox.clear();
-          LocalStorageService.instance.settingsBox.putAll(jsonData);
+          final incoming =
+              jsonData is Map ? Map<dynamic, dynamic>.from(jsonData) : {};
+          preserved.addAll(ProfileBackupService.stripDeviceLocalSettings(incoming));
+          await LocalStorageService.instance.settingsBox.putAll(preserved);
           AppSettingsController.instance.reloadFromStorage();
           Log.i('已同步用户设置');
         } catch (e) {

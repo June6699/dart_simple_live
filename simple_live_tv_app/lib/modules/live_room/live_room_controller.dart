@@ -92,6 +92,13 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   bool _watchdogRefreshing = false;
   DateTime? _lastWatchdogRefreshAt;
 
+  /// 断流自动恢复记账：恢复成功即重置重试计数（"连续失败"语义），
+  /// 并记录恢复时刻；5 分钟内成功恢复次数过多说明流本身不可持续，
+  /// 不再无限重试，走下播/换台兜底，避免死循环。
+  final List<DateTime> _playbackRecoveryTimes = [];
+  static const int _maxRecoveriesPerWindow = 6;
+  static const Duration _recoveryWindow = Duration(minutes: 5);
+
   /// 自动退出倒计时，单位秒
   var countdown = 60.obs;
 
@@ -287,7 +294,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   void refreshRoom() {
     //messages.clear();
-
+    _resetPlaybackRecoveryBookkeeping();
     liveDanmaku.stop();
     _clearDanmuDedupeState();
 
@@ -576,6 +583,54 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     liveDanmaku.onReady = onWSReady;
   }
 
+  // ---- 弹幕批量合帧缓冲（#137 同源优化）----
+  static const Duration _danmakuFlushInterval = Duration(milliseconds: 150);
+  static const int _danmakuFlushThreshold = 40;
+  final List<LiveMessage> _pendingDanmakuMessages = [];
+  Timer? _danmakuFlushTimer;
+
+  void _queueDanmakuMessage(LiveMessage msg) {
+    _pendingDanmakuMessages.add(msg);
+    if (_pendingDanmakuMessages.length >= _danmakuFlushThreshold) {
+      _flushDanmakuMessages();
+      return;
+    }
+    _danmakuFlushTimer ??= Timer(_danmakuFlushInterval, _flushDanmakuMessages);
+  }
+
+  void _flushDanmakuMessages() {
+    _danmakuFlushTimer?.cancel();
+    _danmakuFlushTimer = null;
+    if (_pendingDanmakuMessages.isEmpty) {
+      return;
+    }
+    final batch = List<LiveMessage>.from(_pendingDanmakuMessages);
+    _pendingDanmakuMessages.clear();
+    if (!liveStatus.value || isBackground) {
+      return;
+    }
+    final renderEmoji = AppSettingsController.instance.danmuRenderEmoji.value;
+    final items = <DanmakuContentItem>[];
+    for (var msg in batch) {
+      final parts = renderEmoji ? _buildDanmakuContentParts(msg.spans) : null;
+      items.add(
+        DanmakuContentItem(
+          msg.message,
+          color: Color.fromARGB(255, msg.color.r, msg.color.g, msg.color.b),
+          imageUrls: renderEmoji && parts == null ? msg.imageUrls : null,
+          parts: parts,
+        ),
+      );
+    }
+    addDanmaku(items);
+  }
+
+  void _cancelDanmakuFlushTimer() {
+    _danmakuFlushTimer?.cancel();
+    _danmakuFlushTimer = null;
+    _pendingDanmakuMessages.clear();
+  }
+
   /// 接收到WebSocket信息
   void onWSMessage(LiveMessage msg) {
     if (msg.type == LiveMessageType.chat) {
@@ -609,16 +664,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         return;
       }
 
-      final renderEmoji = AppSettingsController.instance.danmuRenderEmoji.value;
-      final parts = renderEmoji ? _buildDanmakuContentParts(msg.spans) : null;
-      addDanmaku([
-        DanmakuContentItem(
-          msg.message,
-          color: Color.fromARGB(255, msg.color.r, msg.color.g, msg.color.b),
-          imageUrls: renderEmoji && parts == null ? msg.imageUrls : null,
-          parts: parts,
-        ),
-      ]);
+      // 弹幕批量合帧（#137 同源优化）：高热房间每秒几十条，
+      // 150ms 一帧批量上屏，降低弱芯片 TV 设备的 UI 压力
+      _queueDanmakuMessage(msg);
     } else if (msg.type == LiveMessageType.online) {
       online.value = msg.data;
     } else if (msg.type == LiveMessageType.superChat) {
@@ -827,6 +875,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 加载直播间信息
   void loadData() async {
     playbackLoadError.value = "";
+    _resetPlaybackRecoveryBookkeeping();
+    // 换房丢弃上一间房的弹幕缓冲，避免旧房弹幕漏进新房
+    _cancelDanmakuFlushTimer();
     try {
       pageLoadding.value = true;
       detail.value = await site.liveSite.getRoomDetail(roomId: roomId);
@@ -1018,7 +1069,99 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     Log.d("播放链接\r\n：${playUrls[currentLineIndex]}");
     _startPlaybackWatchdog();
+    _onPlaybackRecovered();
     return true;
+  }
+
+  /// 播放器成功打开后调用：把断流重试计数归零（"连续失败"语义——
+  /// 周期性被服务端掐流的房间，不再第 3 次断流就被误判下播），
+  /// 同时记录恢复时刻用于恢复风暴检测。
+  void _onPlaybackRecovered() {
+    if (mediaErrorRetryCount > 0) {
+      final now = DateTime.now();
+      _playbackRecoveryTimes.add(now);
+      _playbackRecoveryTimes.removeWhere(
+        (t) => t.isBefore(now.subtract(_recoveryWindow)),
+      );
+      if (_playbackRecoveryTimes.length >= _maxRecoveriesPerWindow) {
+        Log.i(
+          "断流恢复风暴：${_recoveryWindow.inMinutes}分钟内已恢复"
+          "${_playbackRecoveryTimes.length}次，暂停自动重试",
+        );
+      }
+    }
+    mediaErrorRetryCount = 0;
+  }
+
+  /// 恢复风暴：短时间内反复"断→恢复"，说明流本身不可持续
+  bool get _playbackRecoveryStormDetected {
+    final cutoff = DateTime.now().subtract(_recoveryWindow);
+    _playbackRecoveryTimes.removeWhere((t) => t.isBefore(cutoff));
+    return _playbackRecoveryTimes.length >= _maxRecoveriesPerWindow;
+  }
+
+  /// 手动刷新 / 进入新房间时清空恢复记账
+  void _resetPlaybackRecoveryBookkeeping() {
+    mediaErrorRetryCount = 0;
+    _playbackRecoveryTimes.clear();
+  }
+
+  /// 单次断流恢复：刷新播放地址并重开播放器。取流/打开抛出的异常
+  /// 不再静默逃逸（旧逻辑页面会冻住在"播放中"），立即走兜底判定。
+  Future<void> _recoverPlaybackOnce() async {
+    try {
+      await setPlayer(refreshUrls: _shouldRefreshUrlsOnPlaybackRetry);
+    } catch (e, stackTrace) {
+      Log.e("断流恢复失败：$e", stackTrace);
+      await _playbackRetriesExhausted();
+    }
+  }
+
+  /// 重试耗尽后的兜底：优先切换剩余线路；已是最末线路且未触发恢复风暴时，
+  /// 虎牙/斗鱼重置计数重新签名再试一轮（斗鱼常只返回一条线路，靠重签兜底）；
+  /// 否则判定下播并尝试自动换台。
+  Future<void> _playbackRetriesExhausted({
+    bool fromError = false,
+    String? error,
+  }) async {
+    if (playUrls.length - 1 != currentLineIndex) {
+      changePlayLine(currentLineIndex + 1);
+      return;
+    }
+    if ((site.id == Constant.kHuya || site.id == Constant.kDouyu) &&
+        !_playbackRecoveryStormDetected) {
+      Log.d("末线路重试耗尽，重新签名再试一轮：${site.id}/$roomId");
+      currentLineIndex = 0;
+      mediaErrorRetryCount = 0;
+      try {
+        await setPlayer(refreshUrls: true);
+      } catch (e, stackTrace) {
+        Log.e("重签恢复失败：$e", stackTrace);
+        _markPlaybackGivenUp(fromError: fromError, error: error ?? e.toString());
+        await _tryAutoSwitchToNextLiveRoom(
+          reason: fromError ? "playback_failure" : "live_end",
+        );
+        if (!fromError && !_autoSwitchingRoom && !liveStatus.value) {
+          _scheduleAutoSwitchFromOfflineRoom();
+        }
+      }
+      return;
+    }
+    _markPlaybackGivenUp(fromError: fromError, error: error);
+    await _tryAutoSwitchToNextLiveRoom(
+      reason: fromError ? "playback_failure" : "live_end",
+    );
+    if (!fromError && !_autoSwitchingRoom && !liveStatus.value) {
+      _scheduleAutoSwitchFromOfflineRoom();
+    }
+  }
+
+  void _markPlaybackGivenUp({bool fromError = false, String? error}) {
+    liveStatus.value = false;
+    if (fromError) {
+      errorMsg.value = "播放失败";
+      SmartDialog.showToast("播放失败:${error ?? ''}");
+    }
   }
 
   bool get _shouldRefreshUrlsOnPlaybackRetry =>
@@ -1026,7 +1169,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   @override
   void mediaEnd() async {
-    if (mediaErrorRetryCount < 2) {
+    if (mediaErrorRetryCount < 2 && !_playbackRecoveryStormDetected) {
       Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
         //延迟一秒再刷新
@@ -1034,26 +1177,18 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       }
       mediaErrorRetryCount += 1;
       //刷新一次
-      unawaited(setPlayer(refreshUrls: _shouldRefreshUrlsOnPlaybackRetry));
+      await _recoverPlaybackOnce();
       return;
     }
 
     Log.d("播放结束");
-    // 遍历线路，如果全部链接都断开就是直播结束了
-    if (playUrls.length - 1 == currentLineIndex) {
-      liveStatus.value = false;
-      await _tryAutoSwitchToNextLiveRoom(reason: "live_end");
-    } else {
-      changePlayLine(currentLineIndex + 1);
-
-      //setPlayer();
-    }
+    await _playbackRetriesExhausted();
   }
 
   int mediaErrorRetryCount = 0;
   @override
   void mediaError(String error) async {
-    if (mediaErrorRetryCount < 2) {
+    if (mediaErrorRetryCount < 2 && !_playbackRecoveryStormDetected) {
       Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
         //延迟一秒再刷新
@@ -1061,19 +1196,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       }
       mediaErrorRetryCount += 1;
       //刷新一次
-      unawaited(setPlayer(refreshUrls: _shouldRefreshUrlsOnPlaybackRetry));
+      await _recoverPlaybackOnce();
       return;
     }
 
-    if (playUrls.length - 1 == currentLineIndex) {
-      errorMsg.value = "播放失败";
-      SmartDialog.showToast("播放失败:$error");
-      await _tryAutoSwitchToNextLiveRoom(reason: "playback_failure");
-    } else {
-      //currentLineIndex += 1;
-      //setPlayer();
-      changePlayLine(currentLineIndex + 1);
-    }
+    await _playbackRetriesExhausted(fromError: true, error: error);
   }
 
   /// 房间打开后发现未开播时，若开启了任一自动切换开关，
@@ -1305,12 +1432,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       SmartDialog.showToast("没有正在直播的频道");
       return;
     }
+    // 当前房间可能已下播被移出在播列表，或来自历史记录不在关注列表里：
+    // 视为"列表之外"，从列表头继续切台，避免卡死无法换台
     var index = liveChannels
         .indexWhere((element) => element.id == "${site.id}_$roomId");
-    if (index == -1) {
-      SmartDialog.showToast("当前直播间不在直播列表中");
-      return;
-    }
     index += 1;
     if (index >= liveChannels.length) {
       index = 0;
@@ -1327,12 +1452,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       SmartDialog.showToast("没有正在直播的频道");
       return;
     }
+    // 同 nextChannel：不在在播列表时视为"列表之外"，从列表尾继续切台
     var index = liveChannels
         .indexWhere((element) => element.id == "${site.id}_$roomId");
-    if (index == -1) {
-      SmartDialog.showToast("当前直播间不在直播列表中");
-      return;
-    }
     index -= 1;
     if (index < 0) {
       index = liveChannels.length - 1;
@@ -1373,6 +1495,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     liveDanmaku.stop();
     _liveEventFlowTimer?.cancel();
     clearLiveEventFlow();
+    _cancelDanmakuFlushTimer();
 
     danmakuController = null;
     super.onClose();
