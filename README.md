@@ -109,9 +109,9 @@ TV 下载建议：
 
 当前版本暂时下线实时字幕入口，相关开关、样式和模型说明不再对外展示。
 
-## 抖音/快手配置 Cookie
+## 抖音/快手/斗鱼配置 Cookie
 
-[Simple Live 抖音/快手 Cookie 获取和导入教程 | June's Blog](https://june6699.github.io/posts/simple-live-抖音-cookie-获取和导入教程/)
+[Simple Live 抖音/快手/斗鱼 Cookie 获取和导入教程 | June's Blog](https://june6699.github.io/posts/simple-live-抖音-cookie-获取和导入教程/)
 
 抖音播放可以使用内置 `ttwid` 兜底，但房间名 / 主播名搜索经常要求登录态。搜索不可用时，需要在 `账号管理 -> 抖音 -> Cookie登录` 粘贴桌面浏览器登录后的完整 Cookie，不要只粘贴单个 `ttwid`。
 
