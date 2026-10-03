@@ -34,15 +34,16 @@ simple_live_tv_app/.vscode/settings.json
 **/android/.kotlin/
 
 # =============================================================================
-# Release outputs & generated workspace data
+# Release outputs & generated workspace data (anchored to repo root;
+# unanchored "models/" once swallowed simple_live_tv_app/lib/models sources)
 # =============================================================================
-release/
-models/
-docs/
-issue_logs/
-experience/
-graphify-out/
-tools/
+/release/
+/models/
+/docs/
+/issue_logs/
+/experience/
+/graphify-out/
+/tools/
 
 # =============================================================================
 # Local build scripts & vendored third-party archives
@@ -89,4 +90,4 @@ images/todo/
 !SETTINGS_GUIDE.md
 !**/README.md
 .codex/project-experience.md
-learning/
+/learning/
