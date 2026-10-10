@@ -33,6 +33,10 @@ Simple Live 会继续保持开源和免费使用。赞助费用主要用于同�
 </p>
 
 
+## 用户群
+
+暂缓提供。
+
 ## Release 资产
 
 Release 资产会在 Windows、Android 和 TV 模拟环境完成基础验证后发布。
