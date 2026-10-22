@@ -129,7 +129,7 @@ set(LIBMPV "mpv-dev-x86_64-${LIBMPV_RELEASE}-git-${LIBMPV_REVISION}.7z")
 # Primary: upstream shinchiro release; Fallback: permanent release mirror.
 set(LIBMPV_URLS
   "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/${LIBMPV_RELEASE}/${LIBMPV}"
-  "https://github.com/821869798/dart_simple_live/releases/download/deps/${LIBMPV}"
+  "https://github.com/June6699/dart_simple_live/releases/download/v1.13.2/${LIBMPV}"
 )
 if(DEFINED ENV{SIMPLE_LIVE_LIBMPV_URL})
   list(PREPEND LIBMPV_URLS "$ENV{SIMPLE_LIVE_LIBMPV_URL}")
