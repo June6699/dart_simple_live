@@ -304,15 +304,6 @@ class HuyaSite implements LiveSite {
     if (bitRate > 0) {
       url += "&ratio=$bitRate";
     }
-    // 4K(ratio>=20000)缺少 dMod 参数时会被 CDN 边缘节点 403 拒绝
-    // (issue #156, 赛事房间实测: 无参数稳定403, 带 dMod 可出流)。
-    // 实测 sdkPcdn=1_1(P2P调度)反而更易被拒, 故只带 dMod；
-    // 其余档位保持原有 URL 不变。
-    // 注意: 匿名拉取 4K 的吞吐受虎牙服务端限制(远低于标称20Mbps),
-    // 播放卡顿属服务端限流, 非地址签名问题。
-    if (bitRate >= 18000) {
-      url += "&dMod=mseh-0";
-    }
     return url;
   }
 
