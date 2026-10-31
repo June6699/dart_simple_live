@@ -21,6 +21,8 @@ import 'package:simple_live_tv_app/modules/search/anchor/search_anchor_controlle
 import 'package:simple_live_tv_app/modules/search/anchor/search_anchor_page.dart';
 import 'package:simple_live_tv_app/modules/search/room/search_room_controller.dart';
 import 'package:simple_live_tv_app/modules/search/room/search_room_page.dart';
+import 'package:simple_live_tv_app/modules/auto_switch_list/auto_switch_list_controller.dart';
+import 'package:simple_live_tv_app/modules/auto_switch_list/auto_switch_list_page.dart';
 import 'package:simple_live_tv_app/modules/settings/settings_controller.dart';
 import 'package:simple_live_tv_app/modules/settings/settings_page.dart';
 import 'package:simple_live_tv_app/modules/sync/sync_controller.dart';
@@ -97,6 +99,14 @@ class AppPages {
       page: () => const SettingsPage(),
       bindings: [
         BindingsBuilder.put(() => SettingsController()),
+      ],
+    ),
+    // 轮播列表管理
+    GetPage(
+      name: RoutePath.kAutoSwitchList,
+      page: () => const AutoSwitchListPage(),
+      bindings: [
+        BindingsBuilder.put(() => AutoSwitchListController()),
       ],
     ),
     // 历史记录

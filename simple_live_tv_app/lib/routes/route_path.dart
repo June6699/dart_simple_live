@@ -34,6 +34,9 @@ class RoutePath {
   /// 设置
   static const kSettings = "/settings";
 
+  /// 轮播列表管理（设置子页）
+  static const kAutoSwitchList = "/settings/auto_switch_list";
+
   /// 热门直播
   static const kHotLive = "/hot_live";
 

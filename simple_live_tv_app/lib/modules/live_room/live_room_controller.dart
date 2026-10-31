@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
@@ -17,9 +18,11 @@ import 'package:simple_live_tv_app/app/event_bus.dart';
 import 'package:simple_live_tv_app/app/log.dart';
 import 'package:simple_live_tv_app/app/sites.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
+import 'package:simple_live_tv_app/models/auto_switch_item.dart';
 import 'package:simple_live_tv_app/models/db/follow_user.dart';
 import 'package:simple_live_tv_app/models/db/history.dart';
 import 'package:simple_live_tv_app/modules/live_room/player/player_controller.dart';
+import 'package:simple_live_tv_app/services/auto_switch_list_service.dart';
 import 'package:simple_live_tv_app/services/current_room_service.dart';
 import 'package:simple_live_tv_app/services/db_service.dart';
 import 'package:simple_live_tv_app/services/follow_user_service.dart';
@@ -1418,6 +1421,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       return false;
     }
 
+    // 轮播列表开启且非空：候选源切换为轮播列表（#154）
+    final playlist = AutoSwitchListService.instance;
+    if (settings.autoSwitchListEnabled.value && playlist.items.isNotEmpty) {
+      return _tryAutoSwitchViaPlaylist(reason: reason);
+    }
+
     final candidates = FollowUserService.instance.allList.toList();
     if (candidates.isEmpty) {
       return false;
@@ -1480,14 +1489,75 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     _autoSwitchingRoom = true;
     try {
-      SmartDialog.showToast(switch (reason) {
-        "live_end" => "当前直播已结束，已切换到下一个直播间",
-        "playback_failure" => "当前直播播放失败，已切换到下一个直播间",
-        _ => "当前直播间未开播，已切换到下一个直播间",
-      });
+      SmartDialog.showToast(_autoSwitchToastText(reason));
       if (reason == "room_offline") {
         _autoSwitchOfflineHops += 1;
       }
+      resetRoom(Sites.allSites[target.siteId]!, target.roomId);
+      return true;
+    } finally {
+      _autoSwitchingRoom = false;
+    }
+  }
+
+  String _autoSwitchToastText(String reason) {
+    return switch (reason) {
+      "live_end" => "当前直播已结束，已切换到下一个直播间",
+      "playback_failure" => "当前直播播放失败，已切换到下一个直播间",
+      _ => "当前直播间未开播，已切换到下一个直播间",
+    };
+  }
+
+  /// 轮播列表自动换台（#154）。
+  /// 换台前整体刷新成员开播状态（"关播后重新刷新列表"），
+  /// 再按顺序（从当前成员环形顺延）或随机点名一个在播成员。
+  Future<bool> _tryAutoSwitchViaPlaylist({required String reason}) async {
+    final playlist = AutoSwitchListService.instance;
+    if (!await playlist.refreshStatuses()) {
+      SmartDialog.showToast("直播状态查询触发风控，稍后再试");
+      return false;
+    }
+    final currentId = "${site.id}_$roomId";
+    final liveTargets = playlist.liveItems(excludeId: currentId);
+    if (liveTargets.isEmpty) {
+      SmartDialog.showToast("轮播列表中没有正在直播的直播间");
+      return false;
+    }
+
+    final AutoSwitchListItem target;
+    if (AppSettingsController.instance.autoSwitchListMode.value == 1) {
+      // 随机点名在播成员
+      target = liveTargets[Random().nextInt(liveTargets.length)];
+    } else {
+      // 顺序：从当前播放成员的下一个开始环形顺延，点名第一个在播成员
+      final all = playlist.items.toList();
+      final startIndex = playlist.cursor.clamp(0, all.length - 1);
+      final ordered = [
+        ...all.skip(startIndex + 1),
+        ...all.take(startIndex + 1),
+      ];
+      AutoSwitchListItem? picked;
+      for (final item in ordered) {
+        if (item.id == currentId) {
+          continue;
+        }
+        if (playlist.statusCache[item.id] == true) {
+          picked = item;
+          break;
+        }
+      }
+      // liveTargets 非空时理论上必能命中，兜底防御
+      picked ??= liveTargets.first;
+      target = picked;
+    }
+
+    _autoSwitchingRoom = true;
+    try {
+      SmartDialog.showToast(_autoSwitchToastText(reason));
+      if (reason == "room_offline") {
+        _autoSwitchOfflineHops += 1;
+      }
+      playlist.cursor = playlist.items.indexWhere((e) => e.id == target.id);
       resetRoom(Sites.allSites[target.siteId]!, target.roomId);
       return true;
     } finally {
@@ -1646,9 +1716,41 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     loadData();
   }
 
-  void nextChannel() {
+  /// 手动切台候选源：轮播列表开启且非空时使用轮播列表的在播成员（#154），
+  /// 否则使用关注在播列表
+  Future<List<({String siteId, String roomId})>>
+      _manualSwitchChannels() async {
+    if (AppSettingsController.instance.autoSwitchListEnabled.value) {
+      final playlist = AutoSwitchListService.instance;
+      if (playlist.items.isNotEmpty) {
+        if (!await playlist.ensureStatusFresh()) {
+          SmartDialog.showToast("直播状态查询触发风控，稍后再试");
+          return [];
+        }
+        return playlist
+            .liveItems()
+            .map((e) => (siteId: e.siteId, roomId: e.roomId))
+            .toList();
+      }
+    }
+    return FollowUserService.instance.livingList
+        .map((e) => (siteId: e.siteId, roomId: e.roomId))
+        .toList();
+  }
+
+  /// 手动切台落在轮播成员上时同步顺序模式游标
+  void _syncPlaylistCursor(String siteId, String roomId) {
+    final playlist = AutoSwitchListService.instance;
+    final index =
+        playlist.items.indexWhere((e) => e.siteId == siteId && e.roomId == roomId);
+    if (index >= 0) {
+      playlist.cursor = index;
+    }
+  }
+
+  Future<void> nextChannel() async {
     //读取正在直播的频道
-    var liveChannels = FollowUserService.instance.livingList;
+    var liveChannels = await _manualSwitchChannels();
     if (liveChannels.isEmpty) {
       SmartDialog.showToast("没有正在直播的频道");
       return;
@@ -1656,32 +1758,34 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     // 当前房间可能已下播被移出在播列表，或来自历史记录不在关注列表里：
     // 视为"列表之外"，从列表头继续切台，避免卡死无法换台
     var index = liveChannels
-        .indexWhere((element) => element.id == "${site.id}_$roomId");
+        .indexWhere((e) => e.siteId == site.id && e.roomId == roomId);
     index += 1;
     if (index >= liveChannels.length) {
       index = 0;
     }
     var nextChannel = liveChannels[index];
 
+    _syncPlaylistCursor(nextChannel.siteId, nextChannel.roomId);
     resetRoom(Sites.allSites[nextChannel.siteId]!, nextChannel.roomId);
   }
 
-  void prevChannel() {
+  Future<void> prevChannel() async {
     //读取正在直播的频道
-    var liveChannels = FollowUserService.instance.livingList;
+    var liveChannels = await _manualSwitchChannels();
     if (liveChannels.isEmpty) {
       SmartDialog.showToast("没有正在直播的频道");
       return;
     }
     // 同 nextChannel：不在在播列表时视为"列表之外"，从列表尾继续切台
     var index = liveChannels
-        .indexWhere((element) => element.id == "${site.id}_$roomId");
+        .indexWhere((e) => e.siteId == site.id && e.roomId == roomId);
     index -= 1;
     if (index < 0) {
       index = liveChannels.length - 1;
     }
     var nextChannel = liveChannels[index];
 
+    _syncPlaylistCursor(nextChannel.siteId, nextChannel.roomId);
     resetRoom(Sites.allSites[nextChannel.siteId]!, nextChannel.roomId);
   }
 

@@ -128,6 +128,11 @@ class LocalStorageService extends GetxService {
   static const String kAutoSwitchNextOnLiveEnd = "AutoSwitchNextOnLiveEnd";
   static const String kAutoSwitchNextOnPlaybackFailure =
       "AutoSwitchNextOnPlaybackFailure";
+
+  /// 自动换台轮播列表：开关、顺序模式（0=顺序 1=随机）与成员快照
+  static const String kAutoSwitchListEnabled = "AutoSwitchListEnabled";
+  static const String kAutoSwitchListMode = "AutoSwitchListMode";
+  static const String kAutoSwitchListItems = "AutoSwitchListItems";
   static const String kPlayerVolume = "PlayerVolume";
   static const String kLogEnable = "LogEnable";
   static const String kMpvProfile = "MpvProfile";

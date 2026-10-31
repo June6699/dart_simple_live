@@ -19,6 +19,7 @@ import 'package:simple_live_tv_app/services/follow_user_service.dart';
 import 'package:simple_live_tv_app/services/kuaishou_account_service.dart';
 import 'package:simple_live_tv_app/services/mpv_options_service.dart';
 import 'package:simple_live_tv_app/services/signalr_service.dart';
+import 'package:simple_live_tv_app/routes/route_path.dart';
 import 'package:simple_live_tv_app/widgets/app_scaffold.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_button.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_list_tile.dart';
@@ -243,6 +244,43 @@ class SettingsPage extends GetView<SettingsController> {
                   .setAutoSwitchNextOnPlaybackFailure(e == 1);
             },
           ),
+        ),
+        AppStyle.vGap24,
+        Obx(
+          () => SettingsItemWidget(
+            foucsNode: AppFocusNode(),
+            title: "自动换台使用轮播列表",
+            items: const {0: "关", 1: "开"},
+            value: AppSettingsController.instance.autoSwitchListEnabled.value
+                ? 1
+                : 0,
+            onChanged: (e) {
+              AppSettingsController.instance.setAutoSwitchListEnabled(e == 1);
+            },
+          ),
+        ),
+        AppStyle.vGap24,
+        Obx(
+          () => SettingsItemWidget(
+            foucsNode: AppFocusNode(),
+            title: "轮播点名顺序",
+            items: const {0: "顺序", 1: "随机"},
+            value: AppSettingsController.instance.autoSwitchListMode.value,
+            onChanged: (e) {
+              AppSettingsController.instance.setAutoSwitchListMode(e);
+            },
+          ),
+        ),
+        AppStyle.vGap24,
+        HighlightListTile(
+          focusNode: AppFocusNode(),
+          title: "管理轮播列表",
+          subtitle: "维护自动换台的轮播成员，支持多选添加与按标签导入",
+          leading: const Icon(Icons.playlist_play),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () {
+            Get.toNamed(RoutePath.kAutoSwitchList);
+          },
         ),
         AppStyle.vGap24,
         Obx(

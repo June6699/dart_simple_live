@@ -26,6 +26,7 @@ import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_tv_app/routes/app_navigation.dart';
 import 'package:simple_live_tv_app/routes/app_pages.dart';
 import 'package:simple_live_tv_app/routes/route_path.dart';
+import 'package:simple_live_tv_app/services/auto_switch_list_service.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
 import 'package:simple_live_tv_app/services/crash_report_service.dart';
 import 'package:simple_live_tv_app/services/current_room_service.dart';
@@ -263,6 +264,7 @@ Future initServices() async {
   }
 
   Get.put(FollowUserService());
+  Get.put(AutoSwitchListService()).loadFromStorage();
 }
 
 class MyApp extends StatelessWidget {

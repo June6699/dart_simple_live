@@ -182,6 +182,16 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kAutoSwitchNextOnPlaybackFailure,
       false,
     );
+    autoSwitchListEnabled.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kAutoSwitchListEnabled,
+      false,
+    );
+    autoSwitchListMode.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kAutoSwitchListMode,
+      0,
+    ) == 1
+        ? 1
+        : 0;
 
     shieldList
       ..clear()
@@ -594,6 +604,26 @@ class AppSettingsController extends GetxController {
     LocalStorageService.instance.setValue(
       LocalStorageService.kAutoSwitchNextOnPlaybackFailure,
       e,
+    );
+  }
+
+  /// 自动换台候选源使用轮播列表（#154）
+  var autoSwitchListEnabled = false.obs;
+  void setAutoSwitchListEnabled(bool e) {
+    autoSwitchListEnabled.value = e;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kAutoSwitchListEnabled,
+      e,
+    );
+  }
+
+  /// 轮播点名顺序：0=顺序（从当前成员环形顺延） 1=随机
+  var autoSwitchListMode = 0.obs;
+  void setAutoSwitchListMode(int e) {
+    autoSwitchListMode.value = e == 1 ? 1 : 0;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kAutoSwitchListMode,
+      autoSwitchListMode.value,
     );
   }
 
