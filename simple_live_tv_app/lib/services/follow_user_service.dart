@@ -590,6 +590,56 @@ class FollowUserService extends BasePageController<FollowUser> {
     return true;
   }
 
+  /// 把一批关注加入目标标签（标签管理"添加关注"入口）。
+  /// 已在目标标签内的自动跳过；成员关系与 FollowUser.tag 冗余字符串同步修正。
+  /// 返回实际加入数。
+  Future<int> moveFollowsToTag(
+    List<String> followIds,
+    FollowUserTag targetTag,
+  ) async {
+    final target = followTagList
+        .firstWhereOrNull((e) => e.id == targetTag.id);
+    if (target == null) {
+      SmartDialog.showToast("目标标签不存在");
+      return 0;
+    }
+    final ids = followIds.toSet().toList();
+    var added = 0;
+    for (final id in ids) {
+      final follow = DBService.instance.followBox.get(id);
+      if (follow == null) {
+        continue;
+      }
+      // 已在目标标签内：跳过（保证成员唯一）
+      if (target.userId.contains(follow.id)) {
+        continue;
+      }
+      // 从旧的标签实体移除（"全部"没有实体）
+      final currentName = follow.tag.trim();
+      if (currentName != allTagName) {
+        final currentTag = followTagList.firstWhereOrNull(
+          (e) => e.tag.trim() == currentName,
+        );
+        if (currentTag != null && currentTag.userId.remove(follow.id)) {
+          await DBService.instance.updateFollowTag(currentTag);
+        }
+      }
+      target.userId.add(follow.id);
+      follow.tag = target.tag;
+      await DBService.instance.addFollow(follow);
+      added += 1;
+    }
+    if (added > 0) {
+      await DBService.instance.updateFollowTag(target);
+      final index = followTagList.indexWhere((e) => e.id == target.id);
+      if (index >= 0) {
+        followTagList[index] = target;
+      }
+      EventBus.instance.emit(Constant.kUpdateFollow, null);
+    }
+    return added;
+  }
+
   void setSearchKeyword(String value) {
     searchKeyword.value = value.trim();
     currentDisplayPage.value = 1;

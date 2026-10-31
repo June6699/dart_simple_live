@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
@@ -442,6 +443,13 @@ class _FollowUserPageState extends State<FollowUserPage> {
           ),
           HighlightButton(
             focusNode: AppFocusNode(),
+            iconData: Icons.playlist_add,
+            text: "添加关注",
+            onTap: () => _showFollowPickerForTag(tag),
+          ),
+          AppStyle.hGap12,
+          HighlightButton(
+            focusNode: AppFocusNode(),
             iconData: Icons.edit,
             text: "改名",
             onTap: () => _showRenameTagDialog(tag),
@@ -454,6 +462,89 @@ class _FollowUserPageState extends State<FollowUserPage> {
             onTap: () => _showDeleteTagDialog(tag),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 批量把已有关注加入标签：多选关注后一次性加入
+  Future<void> _showFollowPickerForTag(FollowUserTag tag) async {
+    final candidates = FollowUserService.instance.allList
+        .where((item) => item.tag.trim() != tag.tag.trim())
+        .toList();
+    if (candidates.isEmpty) {
+      SmartDialog.showToast("该标签已包含全部关注");
+      return;
+    }
+    final selected = <String>{};
+    await Utils.showSystemRightDialog(
+      width: 760.w,
+      child: StatefulBuilder(
+        builder: (context, setState) {
+          return ListView(
+            padding: AppStyle.edgeInsetsA24,
+            children: [
+              Text("添加关注到「${tag.tag}」", style: AppStyle.titleStyleWhite),
+              AppStyle.vGap16,
+              Text(
+                "点按选择或取消，可多选（已在该标签内的不会显示）",
+                style: AppStyle.subTextStyleWhite,
+              ),
+              AppStyle.vGap16,
+              ...candidates.map(
+                (item) => Padding(
+                  padding: EdgeInsets.only(bottom: 12.w),
+                  child: HighlightButton(
+                    focusNode: AppFocusNode(),
+                    iconData: selected.contains(item.id)
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                    text: item.userName,
+                    selected: selected.contains(item.id),
+                    onTap: () {
+                      setState(() {
+                        if (!selected.remove(item.id)) {
+                          selected.add(item.id);
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ),
+              AppStyle.vGap24,
+              Row(
+                children: [
+                  HighlightButton(
+                    focusNode: AppFocusNode(),
+                    iconData: Icons.check,
+                    text: "加入(${selected.length})",
+                    onTap: selected.isEmpty
+                        ? null
+                        : () async {
+                            final added = await FollowUserService.instance
+                                .moveFollowsToTag(
+                              selected.toList(),
+                              tag,
+                            );
+                            SmartDialog.showToast(
+                              "已添加 $added 个关注到「${tag.tag}」",
+                            );
+                            Get.back();
+                            Get.back();
+                            _showTagDialog();
+                          },
+                  ),
+                  AppStyle.hGap12,
+                  HighlightButton(
+                    focusNode: AppFocusNode(),
+                    iconData: Icons.close,
+                    text: "取消",
+                    onTap: () => Get.back(),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
