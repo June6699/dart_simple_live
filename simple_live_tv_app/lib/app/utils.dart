@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
+import 'package:simple_live_tv_app/widgets/app_text_field.dart';
 
 typedef TextValidate = bool Function(String text);
 
@@ -152,15 +153,11 @@ class Utils {
           padding: AppStyle.edgeInsetsV12,
           child: SizedBox(
             width: 560.w,
-            child: TextField(
+            child: AppTextField(
               controller: textEditingController,
               autofocus: true,
               style: AppStyle.textStyleWhite,
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                contentPadding: AppStyle.edgeInsetsA12,
-                hintText: hintText ?? title,
-              ),
+              hintText: hintText ?? title,
             ),
           ),
         ),
