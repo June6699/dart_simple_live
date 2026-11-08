@@ -1650,18 +1650,14 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   }
 
   // ===== iOS 画中画（AVSampleBufferDisplayLayer 路线，iOS 15+） =====
-  // 帧源由 vendored media_kit_video 提供：每帧 CVPixelBuffer 零拷贝送入
-  // 系统小窗。小窗会话期间整体切换到纯 CPU 路径（软渲染 + 软解码）：
-  // 退后台后 iOS 收回 GPU 访问权导致 GL 停帧，而 mpv 软渲染器又无法
-  // 映射 VideoToolbox 硬解帧（真机全黑根因），因此两者必须同时切换。
-  // 所有切换严格限定在会话内，退出时按用户原始配置还原，正常播放
-  // 路径不受任何影响。
+  // 本分支为稳定研究分支：帧源保持硬件渲染路径，全程不做任何运行时
+  // 管线切换（软解码/软渲染/停播重开均已剥离）。真机反馈该形态稳定性
+  // 最好——闪退集中出现在引入管线切换的版本，与 mpv 渲染上下文交换
+  // 相关。已知限制：退后台后 iOS 收回 GPU 访问权，GL 渲染停帧，
+  // 小窗画面会在后台冻结，音频正常；退出小窗无抽动（私有帧缓冲）。
   StreamSubscription<dynamic>? _iosPipEventSubscription;
   bool _iosPipTearingDown = false;
   bool _iosPipActive = false;
-  bool _iosPipOriginalHardwareDecode = true;
-  String _iosPipOriginalHwdec = "auto-safe";
-  Media? _iosPipMedia;
 
   Future<void> _enableIOSPip() async {
     if (!await IosPictureInPicture.isSupported()) {
@@ -1676,46 +1672,9 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       SmartDialog.showToast("进入小窗失败");
       return;
     }
-    final media = player.state.playlist.medias.isNotEmpty
-        ? player.state.playlist.medias.first
-        : null;
-    if (media == null) {
-      SmartDialog.showToast("进入小窗失败");
-      return;
-    }
     _iosPipActive = true;
-    _iosPipMedia = media;
     _ensureIosPipEventListener();
-    Log.i("iOS 小窗启动：handle=$handle media=${media.uri}");
-    final nativePlayer = player.platform as NativePlayer;
-    try {
-      _iosPipOriginalHwdec =
-          (await nativePlayer.getProperty("hwdec")).toString();
-    } catch (e) {
-      Log.w("iOS 小窗读取原始 hwdec 失败: $e");
-    }
-    _iosPipOriginalHardwareDecode =
-        AppSettingsController.instance.hardwareDecode.value;
-    // 播放中运行时交换渲染上下文会销毁 vo_libmpv，视频链掉线
-    //（mpv 日志 Video: no video，音频正常画面黑），且与解码器重配置
-    // 存在竞态（显式重载视频轨也无法稳定重建）。改为确定性路径：
-    // 停播 → 无播放状态下完成解码/渲染切换 → 重开同一路流，
-    // 视频链在全新上下文上自然建立。
-    try {
-      await player.stop();
-      await _setIosPipHwdec("no");
-    } catch (e) {
-      Log.w("iOS 小窗切换软解码失败: $e");
-    }
-    await IosPictureInPicture.setHardwareAcceleration(
-      handle: handle,
-      enabled: false,
-    );
-    try {
-      await player.open(media);
-    } catch (e) {
-      Log.w("iOS 小窗重开播放失败: $e");
-    }
+    Log.i("iOS 小窗启动：handle=$handle");
     final started = await IosPictureInPicture.start(
       handle: handle,
       startImmediately: true,
@@ -1724,14 +1683,6 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       await _teardownIosPip();
       SmartDialog.showToast("进入小窗失败");
     }
-  }
-
-  Future<void> _setIosPipHwdec(String value) async {
-    final nativePlayer = player.platform as NativePlayer;
-    final before = await nativePlayer.getProperty("hwdec");
-    await nativePlayer.setProperty("hwdec", value);
-    final after = await nativePlayer.getProperty("hwdec");
-    Log.i("iOS 小窗 hwdec 切换：$before -> $value（生效 $after）");
   }
 
   void _ensureIosPipEventListener() {
@@ -1783,37 +1734,10 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     _iosPipTearingDown = true;
     try {
       await IosPictureInPicture.stop();
-      // 按进入小窗前的原始配置还原解码/渲染（停播状态下交换，
-      // 同进入时）；正常播放不受会话影响，原生侧对"已是目标状态"
-      // 的切换为空操作
-      final restoreHardware = _iosPipOriginalHardwareDecode;
-      final handle = await player.handle;
-      final media = _iosPipMedia;
-      _iosPipMedia = null;
-      try {
-        await player.stop();
-      } catch (e) {
-        Log.d("iOS 小窗停止播放失败: $e");
-      }
-      if (handle != 0) {
-        await IosPictureInPicture.setHardwareAcceleration(
-          handle: handle,
-          enabled: restoreHardware,
-        );
-      }
-      try {
-        await _setIosPipHwdec(_iosPipOriginalHwdec);
-      } catch (e) {
-        Log.w("iOS 小窗恢复解码配置失败: $e");
-      }
-      if (media != null) {
-        try {
-          await player.open(media, play: !pauseOnClosed);
-        } catch (e) {
-          Log.w("iOS 小窗恢复播放失败: $e");
-        }
-      }
       _restorePipExitedState();
+      if (pauseOnClosed) {
+        await player.pause();
+      }
     } catch (e) {
       Log.d("iOS 小窗退出清理失败: $e");
     } finally {
