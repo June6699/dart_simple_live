@@ -205,15 +205,16 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 onPressed: () => _handleBack(context),
               ),
             ),
-            Positioned(
-              right: 8,
-              top: controller.desktopSidePanelCollapsed.value ? 56 : 8,
-              child: _buildDesktopOverlayIconButton(
-                tooltip: "更多",
-                icon: Icons.more_horiz,
-                onPressed: showMore,
+            if (controller.desktopSidePanelCollapsed.value)
+              Positioned(
+                right: 8,
+                top: 56,
+                child: _buildDesktopOverlayIconButton(
+                  tooltip: "更多",
+                  icon: Icons.more_horiz,
+                  onPressed: showMore,
+                ),
               ),
-            ),
             if (Platform.isWindows &&
                 controller.desktopSidePanelCollapsed.value)
               Positioned(
@@ -610,13 +611,28 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                   ),
                 ),
               ),
-              alignment: Alignment.centerLeft,
-              child: Tooltip(
-                message: "折叠聊天区",
-                child: IconButton(
-                  onPressed: controller.toggleDesktopSidePanel,
-                  icon: const Icon(Icons.chevron_right),
-                ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 4),
+                  Tooltip(
+                    message: "折叠聊天区",
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: controller.toggleDesktopSidePanel,
+                      icon: const Icon(Icons.chevron_right),
+                    ),
+                  ),
+                  const Spacer(),
+                  Tooltip(
+                    message: "更多",
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: showMore,
+                      icon: const Icon(Icons.more_horiz),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
               ),
             ),
           Expanded(
@@ -1575,9 +1591,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (context) => Utils.bottomSheetSafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             ListTile(
               leading: const Icon(Icons.refresh),
               title: const Text("刷新"),
@@ -1720,7 +1737,8 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 controller.showDebugInfo();
               },
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
