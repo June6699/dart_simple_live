@@ -49,11 +49,16 @@ class FollowUserController extends BasePageController<FollowUser> {
   static const String offlineStatusTagId = "2";
   StreamSubscription<dynamic>? onUpdatedIndexedStream;
   StreamSubscription<dynamic>? onUpdatedListStream;
+  double _lastScrollOffset = 0;
 
   var groupMode = FollowGroupMode.liveStatus.obs;
   var selectedGroupId = "all".obs;
   var selectedTagId = allTagId.obs;
   var searchKeyword = "".obs;
+  var tagTopPadding = 56.0.obs;
+  var tagPanelHidden = false.obs;
+  RxBool get tagPanelExpanded =>
+      AppSettingsController.instance.followTagPanelExpanded;
   var multiSelectMode = false.obs;
   RxSet<String> selectedMultiRoomKeys = <String>{}.obs;
   var currentDisplayPage = 1.obs;
@@ -86,6 +91,8 @@ class FollowUserController extends BasePageController<FollowUser> {
       updateTagList();
       filterData();
     });
+    scrollController.addListener(_trackPanelVisibility);
+    _syncTagTopPadding();
     super.onInit();
   }
 
@@ -107,6 +114,35 @@ class FollowUserController extends BasePageController<FollowUser> {
         ? FollowGroupMode.platform
         : FollowGroupMode.liveStatus;
     selectedGroupId.value = settings.followSelectedGroupId.value;
+  }
+
+  void toggleTagPanel() {
+    AppSettingsController.instance
+        .setFollowTagPanelExpanded(!tagPanelExpanded.value);
+    _syncTagTopPadding();
+  }
+
+  void _syncTagTopPadding() {
+    tagTopPadding.value = tagPanelExpanded.value ? 188 : 56;
+  }
+
+  /// 下滑时标签面板平滑滑出视窗，上滑任意位置即滑回覆盖显示。
+  void _trackPanelVisibility() {
+    if (!scrollController.hasClients) {
+      return;
+    }
+    final offset = scrollController.offset;
+    final delta = offset - _lastScrollOffset;
+    _lastScrollOffset = offset;
+    if (offset <= 8) {
+      tagPanelHidden.value = false;
+      return;
+    }
+    if (delta > 2) {
+      tagPanelHidden.value = true;
+    } else if (delta < -2) {
+      tagPanelHidden.value = false;
+    }
   }
 
   @override
@@ -418,12 +454,14 @@ class FollowUserController extends BasePageController<FollowUser> {
     selectedTagId.value = tag.id;
     currentDisplayPage.value = 1;
     filterData();
+    _jumpToTop();
   }
 
   void setSearchKeyword(String value) {
     searchKeyword.value = value.trim();
     currentDisplayPage.value = 1;
     filterData();
+    _jumpToTop();
   }
 
   void clearSearchKeyword() {
@@ -433,6 +471,7 @@ class FollowUserController extends BasePageController<FollowUser> {
     searchKeyword.value = "";
     currentDisplayPage.value = 1;
     filterData();
+    _jumpToTop();
   }
 
   void _requestVisiblePreviews(List<FollowUser> items) {
@@ -452,6 +491,7 @@ class FollowUserController extends BasePageController<FollowUser> {
     AppSettingsController.instance.setFollowOnlyLive(value);
     currentDisplayPage.value = 1;
     filterData();
+    _jumpToTop();
   }
 
   void setRefreshOnEnter(bool value) {
@@ -468,12 +508,14 @@ class FollowUserController extends BasePageController<FollowUser> {
     selectedGroupId.value = "all";
     _saveGroupSelection();
     filterData();
+    _jumpToTop();
   }
 
   void setGroupOption(FollowGroupOption option) {
     selectedGroupId.value = option.id;
     _saveGroupSelection();
     filterData();
+    _jumpToTop();
   }
 
   void _saveGroupSelection() {
@@ -483,6 +525,14 @@ class FollowUserController extends BasePageController<FollowUser> {
           : "liveStatus",
       groupId: selectedGroupId.value,
     );
+  }
+
+  /// 切换筛选后内容会整组替换，保持原滚动位置只会停在新内容的半途。
+  void _jumpToTop() {
+    tagPanelHidden.value = false;
+    if (scrollController.hasClients) {
+      scrollController.jumpTo(0);
+    }
   }
 
   void removeItem(FollowUser item) async {

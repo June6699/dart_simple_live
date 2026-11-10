@@ -432,6 +432,10 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kFollowShowLiveCover,
       false,
     );
+    followTagPanelExpanded.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kFollowTagPanelExpanded,
+      false,
+    );
 
     rememberWindowPlacement.value = LocalStorageService.instance.getValue(
       LocalStorageService.kRememberWindowPlacement,
@@ -2274,6 +2278,7 @@ class AppSettingsController extends GetxController {
   var followOnlyLive = false.obs;
   var followRefreshOnEnter = false.obs;
   var followShowLiveCover = false.obs;
+  var followTagPanelExpanded = false.obs;
 
   String _normalizeFollowDisplayStyle(String value) {
     if (followDisplayStyleOptions.contains(value)) {
@@ -2327,6 +2332,14 @@ class AppSettingsController extends GetxController {
     followShowLiveCover.value = value;
     LocalStorageService.instance.setValue(
       LocalStorageService.kFollowShowLiveCover,
+      value,
+    );
+  }
+
+  void setFollowTagPanelExpanded(bool value) {
+    followTagPanelExpanded.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kFollowTagPanelExpanded,
       value,
     );
   }
