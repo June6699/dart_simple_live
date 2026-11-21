@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
@@ -27,7 +25,7 @@ class AppStyle {
     checkboxTheme: CheckboxThemeData(
       fillColor: WidgetStateProperty.all(AppColors.lightColorScheme.primary),
     ),
-    fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
+    fontFamily: 'MiSans',
   );
 
   static SizedBox get vGap4 => SizedBox(

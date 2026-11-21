@@ -82,3 +82,10 @@ flutter:
     - assets/images/douyin_emoji/
     - assets/icons/
     - assets/lotties/
+  fonts:
+    - family: MiSans
+      fonts:
+        - asset: assets/fonts/MiSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/MiSans-Bold.ttf
+          weight: 700
